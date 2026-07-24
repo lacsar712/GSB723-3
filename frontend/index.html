@@ -5,7 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>校递快跑 - 大学生代取快递平台</title>
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="credit.css?v=2">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -70,6 +71,8 @@
                 <a href="#" class="nav-item active" data-tab="dashboard"><i class="fas fa-th-large"></i> 任务大厅</a>
                 <a href="#" class="nav-item" data-tab="my-orders"><i class="fas fa-clipboard-list"></i> 我的订单</a>
                 <a href="#" class="nav-item" data-tab="post-task"><i class="fas fa-plus-circle"></i> 发布悬赏</a>
+                <a href="#" class="nav-item" data-tab="credit"><i class="fas fa-shield-halved"></i> 信用档案</a>
+                <a href="#" class="nav-item" data-tab="disputes"><i class="fas fa-gavel"></i> 纠纷中心</a>
                 <a href="#" class="nav-item" data-tab="profile"><i class="fas fa-user-circle"></i> 个人中心</a>
             </nav>
             <div class="sidebar-footer">
@@ -198,8 +201,64 @@
                         <button class="p-action-btn" id="edit-profile-btn"><i class="fas fa-edit"></i> 修改个人资料</button>
                         <button class="p-action-btn" id="account-sec-btn"><i class="fas fa-shield-alt"></i>
                             账户安全</button>
+                        <button class="p-action-btn" id="goto-credit-btn"><i class="fas fa-shield-halved"></i> 查看信用档案</button>
                     </div>
                 </div>
+            </section>
+
+            <!-- Credit Profile -->
+            <section class="view-section hidden" id="credit-tab">
+                <div class="section-header">
+                    <h2><i class="fas fa-shield-halved"></i> 我的信用档案</h2>
+                </div>
+                <div class="credit-hero">
+                    <div class="credit-ring" id="credit-ring">
+                        <div class="credit-ring-inner">
+                            <span class="credit-score-big" id="credit-score-big">--</span>
+                            <span class="credit-grade-badge" id="credit-grade-big">-</span>
+                        </div>
+                    </div>
+                    <div class="credit-hero-meta">
+                        <h3 id="credit-hero-name">--</h3>
+                        <p id="credit-hero-status">加载中...</p>
+                        <div class="credit-hero-stats">
+                            <div class="ch-stat"><span class="ch-val" id="credit-given-count">0</span><span class="ch-lab">我给出</span></div>
+                            <div class="ch-stat"><span class="ch-val" id="credit-received-count">0</span><span class="ch-lab">我收到</span></div>
+                            <div class="ch-stat"><span class="ch-val" id="credit-min-threshold">60</span><span class="ch-lab">接单阈值</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="credit-rule-bar">
+                    <i class="fas fa-circle-info"></i>
+                    <span>信用分规则：初始 100；每次被评分后 新分 = round(旧分×0.8 + 评分×20×0.2)；低于 60 不可再接单；≥90 优 / ≥75 良 / ≥60 中 / &lt;60 差。</span>
+                </div>
+
+                <div class="credit-list-header">
+                    <h3><i class="fas fa-star-half-stroke"></i> 评分记录（近 10 条）</h3>
+                    <div class="view-toggle" id="credit-direction-toggle">
+                        <button class="toggle-btn active" data-dir="received">我收到的</button>
+                        <button class="toggle-btn" data-dir="given">我给出的</button>
+                    </div>
+                </div>
+                <div class="rating-list" id="rating-list"></div>
+            </section>
+
+            <!-- Dispute Center -->
+            <section class="view-section hidden" id="disputes-tab">
+                <div class="section-header">
+                    <h2><i class="fas fa-gavel"></i> 纠纷中心</h2>
+                </div>
+                <div class="dispute-tip">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <div>
+                        <strong>仲裁规则：</strong>
+                        仅「已接单/进行中」或「接单方已确认送达」的订单可发起纠纷，需填写原因（≤100字）。
+                        发起后订单冻结，不可再做普通状态推进；24 小时内双方未补充说明，系统按「接单方责任」自动成立并退回悬赏；
+                        「已确认送达」后 2 小时内未确认也未发起纠纷，订单自动完成。
+                    </div>
+                </div>
+                <div class="dispute-list" id="dispute-list"></div>
             </section>
         </main>
     </div>
@@ -245,7 +304,70 @@
         </div>
     </div>
 
-    <script src="script.js?v=3"></script>
+    <!-- Rating Modal -->
+    <div id="rating-modal" class="overlay hidden">
+        <div class="auth-card" style="width: 420px;">
+            <h2><i class="fas fa-star"></i> 评价本次服务</h2>
+            <p class="modal-sub" id="rating-target-desc">订单 #--</p>
+            <div class="star-picker" id="star-picker">
+                <span class="star" data-v="1"><i class="far fa-star"></i></span>
+                <span class="star" data-v="2"><i class="far fa-star"></i></span>
+                <span class="star" data-v="3"><i class="far fa-star"></i></span>
+                <span class="star" data-v="4"><i class="far fa-star"></i></span>
+                <span class="star" data-v="5"><i class="far fa-star"></i></span>
+            </div>
+            <div class="form-group" style="margin-top:18px;">
+                <label>评语 <span style="color: #94a3b8; font-size: 0.85rem;">(可选，最多50字)</span></label>
+                <textarea id="rating-comment" maxlength="50" rows="3" placeholder="说点什么吧..."></textarea>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:18px;">
+                <button type="button" class="btn-outline" id="rating-cancel">取消</button>
+                <button type="button" class="btn-primary" id="rating-submit">提交评价</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dispute Modal -->
+    <div id="dispute-modal" class="overlay hidden">
+        <div class="auth-card" style="width: 460px;">
+            <h2><i class="fas fa-gavel"></i> 发起纠纷</h2>
+            <p class="modal-sub" id="dispute-target-desc">订单 #--</p>
+            <div class="form-group" style="margin-top:10px;">
+                <label>纠纷原因 <span style="color: #94a3b8; font-size: 0.85rem;">(最多100字)</span></label>
+                <textarea id="dispute-reason" maxlength="100" rows="4" placeholder="请简要说明争议情况，如：物品损坏、未送达、虚假送达等"></textarea>
+            </div>
+            <div class="dispute-warn">
+                <i class="fas fa-triangle-exclamation"></i>
+                发起后订单将被冻结，双方均可补充说明，24小时未补充将自动裁决。
+            </div>
+            <div style="display:flex; gap:10px; margin-top:18px;">
+                <button type="button" class="btn-outline" id="dispute-cancel">取消</button>
+                <button type="button" class="btn-primary" id="dispute-submit" style="background:var(--secondary);">确认发起</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dispute Detail Modal -->
+    <div id="dispute-detail-modal" class="overlay hidden">
+        <div class="auth-card dispute-detail-card">
+            <h2><i class="fas fa-scale-balanced"></i> 纠纷详情</h2>
+            <div id="dispute-detail-body"></div>
+            <div class="form-group hidden" id="dispute-respond-block" style="margin-top:18px;">
+                <label>补充说明 <span style="color: #94a3b8; font-size: 0.85rem;">(最多120字)</span></label>
+                <textarea id="dispute-respond-text" maxlength="120" rows="3" placeholder="提供证据或说明，提交后不可更改"></textarea>
+                <div style="display:flex; gap:10px; margin-top:12px;">
+                    <button type="button" class="btn-primary" id="dispute-respond-submit">提交补充说明</button>
+                </div>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:18px;">
+                <button type="button" class="btn-outline" id="dispute-detail-close">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js?v=5"></script>
+    <script src="credit-api.js?v=2"></script>
+    <script src="credit-ui.js?v=2"></script>
 </body>
 
 </html>
