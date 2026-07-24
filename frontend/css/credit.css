@@ -1,0 +1,303 @@
+/* ========== Credit & Dispute Module Styles ========== */
+
+.credit-hero {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    padding: 36px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.08));
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.6);
+    box-shadow: var(--shadow);
+    margin-bottom: 22px;
+}
+
+.credit-ring {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: conic-gradient(var(--primary) calc(var(--p, 100) * 1%), #e2e8f0 0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 10px 30px rgba(99,102,241,0.25);
+    transition: background 0.6s ease;
+}
+
+.credit-ring.grade-优 { background: conic-gradient(#10b981 calc(var(--p,100)*1%), #e2e8f0 0); }
+.credit-ring.grade-良 { background: conic-gradient(var(--primary) calc(var(--p,100)*1%), #e2e8f0 0); }
+.credit-ring.grade-中 { background: conic-gradient(var(--accent) calc(var(--p,100)*1%), #e2e8f0 0); }
+.credit-ring.grade-差 { background: conic-gradient(var(--secondary) calc(var(--p,100)*1%), #e2e8f0 0); }
+
+.credit-ring-inner {
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.credit-score-big {
+    font-size: 2.6rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--text-main);
+}
+
+.credit-grade-badge {
+    margin-top: 6px;
+    padding: 3px 14px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    background: #eef2ff;
+    color: var(--primary);
+}
+
+.credit-grade-badge.grade-优 { background:#ecfdf5; color:#059669; }
+.credit-grade-badge.grade-良 { background:#eef2ff; color:var(--primary); }
+.credit-grade-badge.grade-中 { background:#fffbeb; color:#d97706; }
+.credit-grade-badge.grade-差 { background:#fef2f2; color:#dc2626; }
+
+.credit-hero-meta { flex: 1; }
+.credit-hero-meta h3 {
+    font-size: 1.6rem;
+    margin-bottom: 6px;
+}
+.credit-hero-meta p {
+    color: var(--text-muted);
+    margin-bottom: 18px;
+}
+.credit-hero-stats { display:flex; gap:14px; }
+.ch-stat {
+    flex:1;
+    background: white;
+    padding: 14px;
+    border-radius: 14px;
+    text-align: center;
+    border: 1px solid #f1f5f9;
+}
+.ch-val { display:block; font-size:1.4rem; font-weight:800; color:var(--primary); }
+.ch-lab { display:block; font-size:0.8rem; color:var(--text-muted); margin-top:2px; }
+
+.credit-rule-bar {
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    padding:14px 18px;
+    border-radius:14px;
+    background: rgba(251,191,36,0.08);
+    border:1px solid rgba(251,191,36,0.25);
+    color:#92400e;
+    font-size:0.85rem;
+    line-height:1.6;
+    margin-bottom: 28px;
+}
+.credit-rule-bar i { margin-top:3px; }
+
+.credit-list-header {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:18px;
+}
+.credit-list-header h3 { font-size:1.15rem; }
+
+.rating-list { display:flex; flex-direction:column; gap:14px; }
+.rating-item {
+    background: white;
+    border-radius: 16px;
+    padding: 18px 22px;
+    border:1px solid #f1f5f9;
+    display:flex;
+    gap:16px;
+    align-items:flex-start;
+    transition:0.3s;
+}
+.rating-item:hover {
+    transform: translateX(4px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+}
+.rating-avatar {
+    width:44px; height:44px; border-radius:50%;
+    background: linear-gradient(135deg, var(--primary-light), #a855f7);
+    color:white; display:flex; align-items:center; justify-content:center;
+    font-weight:800; flex-shrink:0;
+}
+.rating-body { flex:1; }
+.rating-top {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:6px;
+}
+.rating-who { font-weight:700; }
+.rating-who .muted { color:var(--text-muted); font-weight:400; font-size:0.85rem; margin-left:6px; }
+.rating-stars { color: #fbbf24; letter-spacing:2px; font-size:0.95rem; }
+.rating-comment {
+    color: var(--text-main);
+    font-size: 0.92rem;
+    line-height:1.5;
+    margin: 6px 0;
+}
+.rating-meta {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    display:flex; gap:14px;
+}
+.rating-empty {
+    text-align:center; padding:40px; color:var(--text-muted);
+}
+
+/* Hall credit badge */
+.creator-credit {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:2px 8px; border-radius:10px;
+    font-size:0.72rem; font-weight:700; margin-left:8px;
+    vertical-align: middle;
+}
+.creator-credit.grade-优 { background:#ecfdf5; color:#059669; }
+.creator-credit.grade-良 { background:#eef2ff; color:var(--primary); }
+.creator-credit.grade-中 { background:#fffbeb; color:#d97706; }
+.creator-credit.grade-差 { background:#fef2f2; color:#dc2626; }
+
+.low-credit-banner {
+    grid-column: 1/-1;
+    display:flex; align-items:center; gap:10px;
+    padding:12px 18px; border-radius:14px;
+    background: rgba(244,63,94,0.08);
+    border:1px dashed rgba(244,63,94,0.4);
+    color:#be123c; font-size:0.88rem; font-weight:600;
+}
+
+/* Star picker */
+.star-picker {
+    display:flex; gap:8px; justify-content:center;
+    font-size:2rem; margin-top:10px;
+}
+.star-picker .star {
+    cursor:pointer; color:#cbd5e1; transition:0.2s;
+}
+.star-picker .star.active,
+.star-picker .star.hover { color:#fbbf24; }
+.star-picker .star:hover { transform: scale(1.15); }
+
+.modal-sub {
+    text-align:center; color:var(--text-muted);
+    margin-top:6px; font-size:0.9rem;
+}
+
+textarea {
+    width:100%; padding:12px; border-radius:10px;
+    border:1px solid #e2e8f0; outline:none; resize:vertical;
+    font-family: inherit; font-size:0.92rem;
+}
+textarea:focus { border-color:var(--primary); box-shadow:0 0 0 4px rgba(99,102,241,0.1); }
+
+.dispute-warn {
+    margin-top:14px; padding:10px 14px;
+    background: rgba(244,63,94,0.07);
+    border-radius:10px; font-size:0.82rem; color:#be123c;
+    display:flex; gap:8px; align-items:flex-start;
+}
+.dispute-warn i { margin-top:2px; }
+
+/* Order card extra buttons */
+.order-footer .btn-danger-outline {
+    flex:1; padding:10px; background:white;
+    border:1px solid rgba(244,63,94,0.4); color:var(--secondary);
+    border-radius:10px; font-weight:700; cursor:pointer;
+}
+.order-footer .btn-rate {
+    flex:1; padding:10px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color:white; border:none; border-radius:10px;
+    font-weight:700; cursor:pointer;
+}
+.order-footer .btn-rate:disabled,
+.order-footer .btn-dispute:disabled {
+    opacity:0.5; cursor:not-allowed;
+}
+
+/* Dispute list */
+.dispute-tip {
+    display:flex; gap:12px; align-items:flex-start;
+    padding:16px 20px; border-radius:16px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(168,85,247,0.06));
+    border:1px solid rgba(99,102,241,0.2);
+    color:var(--text-main); font-size:0.88rem; line-height:1.6;
+    margin-bottom:24px;
+}
+.dispute-tip i { color:var(--primary); margin-top:3px; }
+
+.dispute-list { display:flex; flex-direction:column; gap:16px; }
+.dispute-card {
+    background:white; border-radius:18px; padding:22px 26px;
+    border:1px solid #f1f5f9; border-left:5px solid var(--primary);
+    transition:0.3s;
+}
+.dispute-card:hover { box-shadow:0 10px 30px rgba(0,0,0,0.06); transform:translateY(-2px); }
+.dispute-card.status-pending { border-left-color:#f59e0b; }
+.dispute-card.status-upheld { border-left-color:#ef4444; }
+.dispute-card.status-rejected { border-left-color:#10b981; }
+
+.dispute-head {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:12px;
+}
+.dispute-head h4 { font-size:1.05rem; }
+.dispute-status-tag {
+    padding:4px 12px; border-radius:20px;
+    font-size:0.78rem; font-weight:700;
+}
+.dispute-status-tag.pending { background:#fffbeb; color:#d97706; }
+.dispute-status-tag.upheld { background:#fef2f2; color:#dc2626; }
+.dispute-status-tag.rejected { background:#ecfdf5; color:#059669; }
+
+.dispute-info { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; font-size:0.88rem; color:var(--text-muted); margin-bottom:12px; }
+.dispute-info strong { color:var(--text-main); }
+
+.dispute-reason-text {
+    background:#f8fafc; padding:12px 14px; border-radius:10px;
+    font-size:0.9rem; color:var(--text-main); line-height:1.5;
+    border-left:3px solid var(--primary);
+}
+.dispute-result-text {
+    margin-top:10px; padding:12px 14px; border-radius:10px;
+    font-size:0.88rem; line-height:1.5;
+}
+.dispute-result-text.upheld { background:#fef2f2; color:#991b1b; border-left:3px solid #ef4444; }
+.dispute-result-text.rejected { background:#ecfdf5; color:#065f46; border-left:3px solid #10b981; }
+
+.dispute-actions { margin-top:14px; display:flex; gap:10px; }
+.dispute-actions button {
+    padding:8px 16px; border-radius:10px; border:none;
+    font-weight:700; cursor:pointer; font-size:0.85rem;
+}
+.dispute-detail-card { width:560px !important; max-width:92vw; max-height:86vh; overflow-y:auto; }
+
+.resp-row {
+    margin-top:10px; padding:10px 14px; border-radius:10px;
+    font-size:0.85rem; line-height:1.5;
+}
+.resp-row.creator { background:#eef2ff; color:#3730a3; }
+.resp-row.worker { background:#f0fdf4; color:#065f46; }
+.resp-row .resp-label { font-weight:700; margin-right:6px; }
+
+/* Additional status badges for disputed/refunded */
+.badge.disputed { background:#fef3c7; color:#b45309; }
+.badge.refunded { background:#fee2e2; color:#b91c1c; }
+.badge.delivered { background:#dbeafe; color:#1d4ed8; }
+.order-card.disputed { border-left-color:#f59e0b; }
+.order-card.refunded { border-left-color:#ef4444; }
+
+@media (max-width: 900px) {
+    .credit-hero { flex-direction:column; text-align:center; }
+    .credit-hero-stats { flex-wrap:wrap; }
+    .dispute-info { grid-template-columns:1fr; }
+}

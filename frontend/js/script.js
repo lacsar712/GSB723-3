@@ -154,6 +154,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tab === 'dashboard') fetchOrders();
             if (tab === 'my-orders') fetchMyOrders();
             if (tab === 'profile') loadProfile();
+            if (tab === 'credit' && window.CreditUI) { window.CreditUI.invalidateCaches(); window.CreditUI.loadCreditTab(); }
+            if (tab === 'disputes' && window.CreditUI) { window.CreditUI.invalidateCaches(); window.CreditUI.loadDisputesTab(); }
         };
     });
 
@@ -181,23 +183,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderOrders(orders, container, isMyOrders = false) {
         container.innerHTML = '';
-        if (!isMyOrders) {
-            orders = orders.filter(o => o.status === 'pending' && o.creator !== currentUser.username);
+        const hallOrders = isMyOrders ? orders : orders.filter(o => o.status === 'pending' && o.creator !== currentUser.username);
+
+        if (!isMyOrders && window.CreditUI) {
+            window.CreditUI.addLowCreditBanner(container, hallOrders);
         }
 
-        if (orders.length === 0) {
-            container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 40px;">暂无订单数据</div>';
+        if (hallOrders.length === 0) {
+            container.innerHTML += '<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 40px;">暂无订单数据</div>';
             return;
         }
-        orders.forEach(order => {
+
+        const statusMap = { 'pending': '待接单', 'accepted': '进行中', 'delivered': '待收货', 'completed': '已完成', 'cancelled': '已撤回', 'disputed': '纠纷中', 'refunded': '已退款' };
+
+        hallOrders.forEach(order => {
             const card = document.createElement('div');
             card.className = `order-card ${order.status}`;
 
-            const statusMap = { 'pending': '待接单', 'accepted': '进行中', 'delivered': '待收货', 'completed': '已完成', 'cancelled': '已撤回' };
-
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="badge ${order.status}">${statusMap[order.status]}</span>
+                    <span class="badge ${order.status}">${statusMap[order.status] || order.status}</span>
                     <span style="color: #f43f5e; font-weight: 800; font-size: 1.2rem;">${order.reward}</span>
                 </div>
                 <div class="order-body">
@@ -206,6 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="info-row"><i class="fas fa-door-open"></i> <span>送至: ${order.delivery}</span></div>
                     <div class="info-row"><i class="fas fa-user-circle"></i> <span>发布人: ${order.creator}</span></div>
                     ${order.worker ? `<div class="info-row"><i class="fas fa-hands-helping"></i> <span>接单人: ${order.worker}</span></div>` : ''}
+                    ${order.frozen ? '<div class="info-row" style="color:#d97706"><i class="fas fa-lock" style="color:#d97706"></i> <span>订单已冻结（纠纷处理中）</span></div>' : ''}
                 </div>
                 <div class="order-footer">
                     ${!isMyOrders && order.status === 'pending' ?
@@ -214,14 +220,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${isMyOrders && myOrdersView === 'accepted' && order.status === 'accepted' ?
                     `<button class="btn-primary" onclick="updateStatus(${order.id}, 'delivered')">确认送达</button>` : ''}
 
-                    ${isMyOrders && myOrdersView === 'created' && (order.status === 'accepted' || order.status === 'delivered') ?
-                    `<button class="btn-primary" style="background:var(--accent);color:#fff" onclick="updateStatus(${order.id}, 'completed')">确认收货并支付 / 评价</button>` : ''}
+                    ${isMyOrders && myOrdersView === 'created' && (order.status === 'delivered') ?
+                    `<button class="btn-primary" style="background:var(--accent);color:#fff" onclick="updateStatus(${order.id}, 'completed')">确认收货并支付</button>` : ''}
 
                     ${isMyOrders && myOrdersView === 'created' && order.status === 'pending' ?
                     `<button class="btn-outline" style="color: #ef4444;" onclick="updateStatus(${order.id}, 'cancelled')"><i class="fas fa-undo"></i> 撤回发布</button>` : ''}
                 </div>
             `;
             container.appendChild(card);
+
+            if (window.CreditUI) {
+                if (!isMyOrders) window.CreditUI.decorateHallCard(card, order);
+                else window.CreditUI.decorateMyOrderFooter(card, order);
+            }
         });
     }
 
@@ -285,16 +296,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+            let data = null;
+            try { data = await resp.json(); } catch (e) { data = null; }
             if (!resp.ok) {
-                showToast('操作失败，请重试');
+                showToast((data && data.message) || '操作失败，请重试');
                 return;
             }
 
             if (status === 'accepted') showToast('接单成功，请尽快送达！');
             else if (status === 'delivered') showToast('已送达，等待发单人确认。');
-            else if (status === 'completed') showToast('任务完成，感谢使用！');
+            else if (status === 'completed') showToast('任务完成，可前往卡片评价对方。');
             else if (status === 'cancelled') showToast('已成功撤回该订单。');
 
+            if (window.CreditUI) window.CreditUI.invalidateCaches();
             if (document.getElementById('dashboard-tab').classList.contains('hidden')) fetchMyOrders();
             else fetchOrders();
         } catch (err) { showToast('操作失败'); }
@@ -305,21 +319,27 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.profileRealName.textContent = currentUser.realName;
         elements.profileMajor.textContent = currentUser.major;
 
-        // Fetch real stats from backend
         try {
-            // Count orders created by this user (发布任务)
             const createdResp = await fetch(`/api/orders?creator=${currentUser.username}`);
             const createdOrders = await createdResp.json();
             document.getElementById('stat-created').textContent = createdOrders.length;
 
-            // Count orders completed as worker (代取成功)
             const workerResp = await fetch(`/api/orders?worker=${currentUser.username}`);
             const workerOrders = await workerResp.json();
             const completedCount = workerOrders.filter(o => o.status === 'completed').length;
             document.getElementById('stat-delivered').textContent = completedCount;
 
-            // Credit score stays at 98 (static)
-            document.getElementById('stat-credit').textContent = '98';
+            try {
+                const creditResp = await fetch(`/api/credit?user=${encodeURIComponent(currentUser.username)}`);
+                const info = await creditResp.json();
+                document.getElementById('stat-credit').textContent = info.creditScore;
+                currentUser.creditScore = info.creditScore;
+                currentUser.grade = info.grade;
+                currentUser.canAccept = info.canAccept;
+                localStorage.setItem('user', JSON.stringify(currentUser));
+            } catch (e) {
+                document.getElementById('stat-credit').textContent = currentUser.creditScore || '--';
+            }
         } catch (err) {
             console.error('Failed to load profile stats:', err);
         }
@@ -387,6 +407,21 @@ document.addEventListener('DOMContentLoaded', () => {
         t.classList.remove('hidden');
         setTimeout(() => t.classList.add('hidden'), 3000);
     }
+
+    function refreshCurrentView() {
+        if (!document.getElementById('dashboard-tab').classList.contains('hidden')) fetchOrders();
+        else if (!document.getElementById('my-orders-tab').classList.contains('hidden')) fetchMyOrders();
+        else if (!document.getElementById('profile-tab').classList.contains('hidden')) loadProfile();
+        if (window.CreditUI) window.CreditUI.invalidateCaches();
+    }
+
+    window.App = {
+        getUser: () => currentUser,
+        toast: showToast,
+        refreshCurrentView,
+        refreshProfile: loadProfile,
+        refreshOrders: () => { fetchOrders(); fetchMyOrders(); }
+    };
 
     // Init
     updateUIForLogin();

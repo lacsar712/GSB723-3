@@ -1,3 +1,9 @@
 # AI / 开发辅助文件
 trae/
 PROMPTS.md
+
+# Build & runtime artifacts
+server
+server.exe
+data_*.bin
+*.log
