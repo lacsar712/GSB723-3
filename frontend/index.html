@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>校递快跑 - 大学生代取快递平台</title>
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -70,6 +70,8 @@
                 <a href="#" class="nav-item active" data-tab="dashboard"><i class="fas fa-th-large"></i> 任务大厅</a>
                 <a href="#" class="nav-item" data-tab="my-orders"><i class="fas fa-clipboard-list"></i> 我的订单</a>
                 <a href="#" class="nav-item" data-tab="post-task"><i class="fas fa-plus-circle"></i> 发布悬赏</a>
+                <a href="#" class="nav-item" data-tab="credit"><i class="fas fa-award"></i> 信用档案</a>
+                <a href="#" class="nav-item" data-tab="disputes"><i class="fas fa-gavel"></i> 纠纷中心</a>
                 <a href="#" class="nav-item" data-tab="profile"><i class="fas fa-user-circle"></i> 个人中心</a>
             </nav>
             <div class="sidebar-footer">
@@ -168,6 +170,36 @@
                 </div>
             </section>
 
+            <!-- Credit Profile -->
+            <section class="view-section hidden" id="credit-tab">
+                <div class="section-header">
+                    <h2><i class="fas fa-award"></i> 我的信用档案</h2>
+                    <div class="view-toggle">
+                        <button class="toggle-btn active" id="credit-received">我收到的</button>
+                        <button class="toggle-btn" id="credit-given">我给出的</button>
+                    </div>
+                </div>
+                <div class="credit-overview" id="credit-overview">
+                    <div class="credit-score-card" id="credit-score-card">
+                        <span class="credit-level-badge" id="credit-level-badge">--</span>
+                        <span class="credit-score-val" id="credit-score-val">--</span>
+                        <span class="credit-score-lab">当前信用分</span>
+                        <p class="credit-level-text" id="credit-level-text">加载中...</p>
+                    </div>
+                </div>
+                <h3 class="credit-list-title">近 10 条评分记录</h3>
+                <div class="credit-records" id="credit-records"></div>
+            </section>
+
+            <!-- Dispute Center -->
+            <section class="view-section hidden" id="disputes-tab">
+                <div class="section-header">
+                    <h2><i class="fas fa-gavel"></i> 纠纷中心</h2>
+                </div>
+                <p class="dispute-hint">对「进行中」或「已确认送达」的订单，任一方可在「我的订单」发起纠纷。以下为与你相关的纠纷单。</p>
+                <div class="dispute-list" id="dispute-list"></div>
+            </section>
+
             <!-- Profile -->
             <section class="view-section hidden" id="profile-tab">
                 <div class="profile-container">
@@ -245,7 +277,71 @@
         </div>
     </div>
 
-    <script src="script.js?v=3"></script>
+    <!-- Rating Modal -->
+    <div id="rating-modal" class="overlay hidden">
+        <div class="auth-card" style="width: 380px;">
+            <h2><i class="fas fa-star"></i> 评价对方</h2>
+            <form id="rating-form" class="auth-form" style="margin-top:20px;">
+                <p class="modal-sub" id="rating-target-info"></p>
+                <div class="form-group">
+                    <label>评分（1-5 星）</label>
+                    <div class="star-picker" id="rating-stars">
+                        <i class="far fa-star" data-val="1"></i>
+                        <i class="far fa-star" data-val="2"></i>
+                        <i class="far fa-star" data-val="3"></i>
+                        <i class="far fa-star" data-val="4"></i>
+                        <i class="far fa-star" data-val="5"></i>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>评语 <span style="color:#94a3b8;font-size:0.85rem;">(可选，最多50字)</span></label>
+                    <textarea id="rating-comment" maxlength="50" rows="3"
+                        placeholder="说说这次合作体验..."></textarea>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button type="button" class="btn-outline"
+                        onclick="document.getElementById('rating-modal').classList.add('hidden')">取消</button>
+                    <button type="submit" class="btn-primary">提交评价</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dispute Modal -->
+    <div id="dispute-modal" class="overlay hidden">
+        <div class="auth-card" style="width: 380px;">
+            <h2><i class="fas fa-gavel"></i> 发起纠纷</h2>
+            <form id="dispute-form" class="auth-form" style="margin-top:20px;">
+                <p class="modal-sub" id="dispute-target-info"></p>
+                <div class="form-group">
+                    <label>纠纷原因 <span style="color:#94a3b8;font-size:0.85rem;">(最多100字)</span></label>
+                    <textarea id="dispute-reason" maxlength="100" rows="4"
+                        placeholder="请描述遇到的问题，例如包裹未送达、信息不符等..." required></textarea>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button type="button" class="btn-outline"
+                        onclick="document.getElementById('dispute-modal').classList.add('hidden')">取消</button>
+                    <button type="submit" class="btn-primary" style="background:var(--secondary)">确认发起</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dispute Detail Modal -->
+    <div id="dispute-detail-modal" class="overlay hidden">
+        <div class="auth-card" style="width: 420px;">
+            <h2><i class="fas fa-file-alt"></i> 纠纷详情</h2>
+            <div id="dispute-detail-body" style="margin-top:20px;"></div>
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button type="button" class="btn-outline"
+                    onclick="document.getElementById('dispute-detail-modal').classList.add('hidden')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="credit-api.js?v=1"></script>
+    <script src="credit-ui.js?v=1"></script>
+    <script src="script.js?v=4"></script>
 </body>
 
 </html>

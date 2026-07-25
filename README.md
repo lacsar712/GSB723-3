@@ -94,6 +94,11 @@ docker-compose up -d --build
 | `POST` | `/api/orders`          | `JSON`   | 把需要跑腿的事件流分发进入中央调度总线。   |
 | `POST` | `/api/update_status`   | `JSON`   | 执行生命周期内关键节点的状态更新流转动作。 |
 | `POST` | `/api/update_profile`  | `JSON`   | 用户自决数据维护与鉴权证书的安全重置等。   |
+| `POST` | `/api/ratings`         | `JSON`   | 订单完成后提交互评，写入评分并更新对方信用分。 |
+| `GET`  | `/api/credit?[params]` | `QueryString` | 查询信用档案：当前分、等级、近 10 条评分记录（`direction=received/given`）。 |
+| `POST` | `/api/disputes`        | `JSON`   | 对争议订单发起纠纷，发起后订单冻结。       |
+| `GET`  | `/api/disputes?[params]` | `QueryString` | 查询与我相关的纠纷单列表（含详情字段）。 |
+| `POST` | `/api/dispute_arbitrate` | `JSON` | 裁决纠纷：`upheld` 成立退市 / `rejected` 驳回恢复。 |
 
 ---
 
