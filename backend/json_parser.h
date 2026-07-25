@@ -12,5 +12,7 @@ void get_orders_json(char *buf, const char *creator_filter, const char *worker_f
 void get_ratings_json(char *buf, const char *username, const char *direction, int limit);
 void get_disputes_json(char *buf, const char *username);
 void get_dispute_json(char *buf, Dispute *d);
+void get_events_json(char *buf, const char *username, int limit);
+void get_user_profile_json(char *buf, const char *username);
 
 #endif

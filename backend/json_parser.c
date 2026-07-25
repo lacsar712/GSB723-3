@@ -237,14 +237,39 @@ void get_ratings_json(char *buf, const char *username, const char *direction, in
 void get_dispute_json(char *buf, Dispute *d) {
   char esc_reason[400];
   char esc_resolution[400];
+  char esc_creator_stmt[500];
+  char esc_worker_stmt[500];
+  char esc_creator_ev_type[60];
+  char esc_worker_ev_type[60];
+  char esc_creator_ev_desc[200];
+  char esc_worker_ev_desc[200];
   escape_json_string(esc_reason, d->reason, sizeof(esc_reason));
   escape_json_string(esc_resolution, d->resolution, sizeof(esc_resolution));
-  snprintf(buf + strlen(buf), 2048,
+  escape_json_string(esc_creator_stmt, d->creator_statement, sizeof(esc_creator_stmt));
+  escape_json_string(esc_worker_stmt, d->worker_statement, sizeof(esc_worker_stmt));
+  escape_json_string(esc_creator_ev_type, d->creator_evidence_type, sizeof(esc_creator_ev_type));
+  escape_json_string(esc_worker_ev_type, d->worker_evidence_type, sizeof(esc_worker_ev_type));
+  escape_json_string(esc_creator_ev_desc, d->creator_evidence_desc, sizeof(esc_creator_ev_desc));
+  escape_json_string(esc_worker_ev_desc, d->worker_evidence_desc, sizeof(esc_worker_ev_desc));
+  int creator_submitted = (d->creator_statement_at > 0) ? 1 : 0;
+  int worker_submitted = (d->worker_statement_at > 0) ? 1 : 0;
+  snprintf(buf + strlen(buf), 3000,
            "{\"id\":%d,\"orderId\":%d,\"initiator\":\"%s\",\"reason\":\"%s\","
            "\"status\":\"%s\",\"createdAt\":%lld,\"resolvedAt\":%lld,"
-           "\"resolution\":\"%s\",\"prevOrderStatus\":\"%s\"}",
+           "\"resolution\":\"%s\",\"prevOrderStatus\":\"%s\","
+           "\"creatorStatement\":\"%s\",\"workerStatement\":\"%s\","
+           "\"creatorEvidenceType\":\"%s\",\"workerEvidenceType\":\"%s\","
+           "\"creatorEvidenceDesc\":\"%s\",\"workerEvidenceDesc\":\"%s\","
+           "\"creatorStatementAt\":%lld,\"workerStatementAt\":%lld,"
+           "\"creatorSubmitted\":%s,\"workerSubmitted\":%s}",
            d->id, d->order_id, d->initiator, esc_reason, d->status,
-           d->created_at, d->resolved_at, esc_resolution, d->prev_order_status);
+           d->created_at, d->resolved_at, esc_resolution, d->prev_order_status,
+           esc_creator_stmt, esc_worker_stmt,
+           esc_creator_ev_type, esc_worker_ev_type,
+           esc_creator_ev_desc, esc_worker_ev_desc,
+           d->creator_statement_at, d->worker_statement_at,
+           creator_submitted ? "true" : "false",
+           worker_submitted ? "true" : "false");
 }
 
 void get_disputes_json(char *buf, const char *username) {
@@ -266,4 +291,87 @@ void get_disputes_json(char *buf, const char *username) {
     first = 0;
   }
   strcat(buf, "]");
+}
+
+void get_events_json(char *buf, const char *username, int limit) {
+  strcat(buf, "[");
+  int first = 1;
+  int count = 0;
+  for (int i = event_count - 1; i >= 0; i--) {
+    if (username && strlen(username) > 0 &&
+        strcmp(events[i].username, username) != 0)
+      continue;
+    if (limit > 0 && count >= limit) break;
+
+    if (!first) strcat(buf, ",");
+    char esc_detail[400];
+    char esc_actor[100];
+    escape_json_string(esc_detail, events[i].detail, sizeof(esc_detail));
+    escape_json_string(esc_actor, events[i].actor, sizeof(esc_actor));
+
+    char item[1024];
+    snprintf(item, sizeof(item),
+             "{\"id\":%d,\"username\":\"%s\",\"eventType\":\"%s\","
+             "\"refType\":\"%s\",\"refId\":%d,\"oldScore\":%d,\"newScore\":%d,"
+             "\"detail\":\"%s\",\"actor\":\"%s\",\"createdAt\":%lld}",
+             events[i].id, events[i].username, events[i].event_type,
+             events[i].ref_type, events[i].ref_id, events[i].old_score,
+             events[i].new_score, esc_detail, esc_actor, events[i].created_at);
+    strcat(buf, item);
+    first = 0;
+    count++;
+  }
+  strcat(buf, "]");
+}
+
+void get_user_profile_json(char *buf, const char *username) {
+  User *u = find_user(username);
+  if (!u) {
+    strcat(buf, "{\"status\":\"error\",\"message\":\"user not found\"}");
+    return;
+  }
+  int score = u->credit_score;
+  int level = compute_credit_level(score);
+  const char *label = credit_level_label(level);
+  int can_accept = (score >= 60) ? 1 : 0;
+
+  int has_active_dispute = 0;
+  for (int i = 0; i < dispute_count; i++) {
+    if (strcmp(disputes[i].status, "pending") != 0) continue;
+    Order *o = find_order(disputes[i].order_id);
+    if (o && (strcmp(o->creator, username) == 0 || strcmp(o->worker, username) == 0)) {
+      has_active_dispute = 1;
+      break;
+    }
+  }
+
+  int pos = strlen(buf);
+  pos += snprintf(buf + pos, 400,
+           "{\"status\":\"success\",\"username\":\"%s\",\"creditScore\":%d,"
+           "\"level\":%d,\"levelLabel\":\"%s\",\"canAccept\":%s,"
+           "\"hasActiveDispute\":%s,\"recentRatings\":[",
+           username, score, level, label,
+           can_accept ? "true" : "false",
+           has_active_dispute ? "true" : "false");
+
+  int count = 0;
+  int first_r = 1;
+  for (int i = rating_count - 1; i >= 0 && count < 3; i--) {
+    if (strcmp(ratings[i].ratee, username) != 0) continue;
+    if (!first_r) { buf[pos++] = ','; buf[pos] = '\0'; }
+    char esc_comment[200];
+    const char *rater = ratings[i].rater;
+    char masked[60];
+    int rlen = strlen(rater);
+    if (rlen <= 1) { snprintf(masked, sizeof(masked), "%s*", rater); }
+    else if (rlen == 2) { snprintf(masked, sizeof(masked), "%c*", rater[0]); }
+    else { snprintf(masked, sizeof(masked), "%c**%c", rater[0], rater[rlen-1]); }
+    escape_json_string(esc_comment, ratings[i].comment, sizeof(esc_comment));
+    pos += snprintf(buf + pos, 400,
+             "{\"rater\":\"%s\",\"score\":%d,\"comment\":\"%s\",\"createdAt\":%lld}",
+             masked, ratings[i].score, esc_comment, ratings[i].created_at);
+    first_r = 0;
+    count++;
+  }
+  snprintf(buf + pos, 50, "]}");
 }

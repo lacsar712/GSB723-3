@@ -5,6 +5,7 @@
 #define MAX_USERS 100
 #define MAX_RATINGS 1000
 #define MAX_DISPUTES 200
+#define MAX_EVENTS 2000
 #define BUFFER_SIZE 20480
 
 typedef struct {
@@ -56,6 +57,27 @@ typedef struct {
   long long resolved_at;
   char resolution[200];
   char prev_order_status[20];
+  char creator_statement[250];
+  char worker_statement[250];
+  char creator_evidence_type[30];
+  char worker_evidence_type[30];
+  char creator_evidence_desc[100];
+  char worker_evidence_desc[100];
+  long long creator_statement_at;
+  long long worker_statement_at;
 } Dispute;
+
+typedef struct {
+  int id;
+  char username[50];
+  char event_type[30];
+  char ref_type[10];
+  int ref_id;
+  int old_score;
+  int new_score;
+  char detail[200];
+  char actor[50];
+  long long created_at;
+} CreditEvent;
 
 #endif

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 User users[MAX_USERS];
 int user_count = 0;
@@ -15,6 +16,9 @@ int next_rating_id = 1;
 Dispute disputes[MAX_DISPUTES];
 int dispute_count = 0;
 int next_dispute_id = 1;
+CreditEvent events[MAX_EVENTS];
+int event_count = 0;
+int next_event_id = 1;
 
 User* find_user(const char *username) {
   for (int i = 0; i < user_count; i++) {
@@ -56,6 +60,24 @@ void update_credit_score(const char *username, int new_score) {
     if (new_score > 100) new_score = 100;
     u->credit_score = new_score;
   }
+}
+
+void add_event(const char *username, const char *event_type, const char *ref_type,
+               int ref_id, int old_score, int new_score, const char *detail,
+               const char *actor) {
+  if (event_count >= MAX_EVENTS) return;
+  CreditEvent *e = &events[event_count++];
+  memset(e, 0, sizeof(CreditEvent));
+  e->id = next_event_id++;
+  strncpy(e->username, username, sizeof(e->username) - 1);
+  strncpy(e->event_type, event_type, sizeof(e->event_type) - 1);
+  strncpy(e->ref_type, ref_type, sizeof(e->ref_type) - 1);
+  e->ref_id = ref_id;
+  e->old_score = old_score;
+  e->new_score = new_score;
+  if (detail) strncpy(e->detail, detail, sizeof(e->detail) - 1);
+  if (actor) strncpy(e->actor, actor, sizeof(e->actor) - 1);
+  e->created_at = (long long)time(NULL);
 }
 
 void save_data() {
@@ -101,14 +123,62 @@ void save_data() {
   } else {
     log_message(LOG_ERROR, "Failed to save disputes data");
   }
+
+  FILE *f5 = fopen("data_events.bin", "wb");
+  if (f5) {
+    fwrite(&event_count, sizeof(int), 1, f5);
+    fwrite(&next_event_id, sizeof(int), 1, f5);
+    fwrite(events, sizeof(CreditEvent), event_count, f5);
+    fclose(f5);
+    log_message(LOG_INFO, "Events data saved successfully");
+  } else {
+    log_message(LOG_ERROR, "Failed to save events data");
+  }
 }
 
 void load_data() {
   FILE *f1 = fopen("data_orders.bin", "rb");
   if (f1) {
-    fread(&order_count, sizeof(int), 1, f1);
-    fread(&next_id, sizeof(int), 1, f1);
-    fread(orders, sizeof(Order), order_count, f1);
+    int stored_count = 0;
+    if (fread(&stored_count, sizeof(int), 1, f1) == 1 && stored_count > 0 && stored_count < MAX_ORDERS) {
+      order_count = stored_count;
+      fread(&next_id, sizeof(int), 1, f1);
+      fseek(f1, 0, SEEK_END);
+      long file_size = ftell(f1);
+      fseek(f1, 2 * sizeof(int), SEEK_SET);
+      long body_size = file_size - 2 * (long)sizeof(int);
+      int record_size = (int)(body_size / order_count);
+      int new_size = (int)sizeof(Order);
+      for (int i = 0; i < order_count; i++) {
+        memset(&orders[i], 0, sizeof(Order));
+        if (record_size == new_size) {
+          if (fread(&orders[i], new_size, 1, f1) != 1) break;
+        } else {
+          char buf[600];
+          int rd = record_size > 600 ? 600 : record_size;
+          if (fread(buf, rd, 1, f1) != 1) break;
+          int off = 0;
+          memcpy(&orders[i].id, buf + off, sizeof(int)); off += 4;
+          memcpy(orders[i].creator, buf + off, 50); off += 50;
+          memcpy(orders[i].worker, buf + off, 50); off += 50;
+          if (off + 100 <= rd) memcpy(orders[i].package_info, buf + off, 100); off += 100;
+          if (off + 100 <= rd) memcpy(orders[i].pickup_addr, buf + off, 100); off += 100;
+          if (off + 100 <= rd) memcpy(orders[i].delivery_addr, buf + off, 100); off += 100;
+          if (off + 20 <= rd) memcpy(orders[i].reward, buf + off, 20); off += 20;
+          if (off + 50 <= rd) memcpy(orders[i].category, buf + off, 50); off += 50;
+          if (off + 20 <= rd) memcpy(orders[i].status, buf + off, 20); off += 20;
+          if (off + 8 <= rd) memcpy(&orders[i].created_at, buf + off, 8); off += 8;
+          if (off + 8 <= rd) memcpy(&orders[i].accepted_at, buf + off, 8); off += 8;
+          if (off + 8 <= rd) memcpy(&orders[i].delivered_at, buf + off, 8); off += 8;
+          if (off + 8 <= rd) memcpy(&orders[i].completed_at, buf + off, 8); off += 8;
+          if (off + 4 <= rd) memcpy(&orders[i].frozen, buf + off, 4); off += 4;
+          if (off + 20 <= rd) memcpy(orders[i].prev_status, buf + off, 20); off += 20;
+          if (off + 4 <= rd) memcpy(&orders[i].creator_rated, buf + off, 4); off += 4;
+          if (off + 4 <= rd) memcpy(&orders[i].worker_rated, buf + off, 4); off += 4;
+          if (off + 4 <= rd) memcpy(&orders[i].disputed, buf + off, 4);
+        }
+      }
+    }
     fclose(f1);
     log_message(LOG_INFO, "Loaded %d orders", order_count);
   } else {
@@ -172,12 +242,41 @@ void load_data() {
 
   FILE *f4 = fopen("data_disputes.bin", "rb");
   if (f4) {
-    fread(&dispute_count, sizeof(int), 1, f4);
-    fread(&next_dispute_id, sizeof(int), 1, f4);
-    fread(disputes, sizeof(Dispute), dispute_count, f4);
+    int stored_count = 0;
+    if (fread(&stored_count, sizeof(int), 1, f4) == 1 && stored_count > 0 && stored_count < MAX_DISPUTES) {
+      dispute_count = stored_count;
+      fread(&next_dispute_id, sizeof(int), 1, f4);
+      fseek(f4, 0, SEEK_END);
+      long file_size = ftell(f4);
+      fseek(f4, 2 * sizeof(int), SEEK_SET);
+      long body_size = file_size - 2 * (long)sizeof(int);
+      int record_size = (int)(body_size / dispute_count);
+      int new_size = (int)sizeof(Dispute);
+      for (int i = 0; i < dispute_count; i++) {
+        memset(&disputes[i], 0, sizeof(Dispute));
+        if (record_size == new_size) {
+          if (fread(&disputes[i], new_size, 1, f4) != 1) break;
+        } else {
+          char buf[600];
+          if (fread(buf, record_size > 600 ? 600 : record_size, 1, f4) != 1) break;
+          memcpy(&disputes[i], buf, record_size > 600 ? 600 : record_size);
+        }
+      }
+    }
     fclose(f4);
     log_message(LOG_INFO, "Loaded %d disputes", dispute_count);
   } else {
     log_message(LOG_WARN, "No existing disputes data found");
+  }
+
+  FILE *f5 = fopen("data_events.bin", "rb");
+  if (f5) {
+    fread(&event_count, sizeof(int), 1, f5);
+    fread(&next_event_id, sizeof(int), 1, f5);
+    fread(events, sizeof(CreditEvent), event_count, f5);
+    fclose(f5);
+    log_message(LOG_INFO, "Loaded %d events", event_count);
+  } else {
+    log_message(LOG_WARN, "No existing events data found");
   }
 }

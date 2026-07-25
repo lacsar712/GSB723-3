@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUser = JSON.parse(localStorage.getItem('user')) || null;
     let currentFilter = '';
     let myOrdersView = 'created';
+    let hallFilter = CreditAPI.HALL_FILTERS.ALL;
 
     const elements = {
         authOverlay: document.getElementById('auth-overlay'),
@@ -15,6 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
         welcomeName: document.getElementById('welcome-name'),
         logoutBtn: document.getElementById('logout-btn'),
         orderList: document.getElementById('order-list'),
+        orderListLow: document.getElementById('order-list-low'),
+        lowCreditSection: document.getElementById('low-credit-section'),
+        hallFilterBar: document.getElementById('hall-filter-bar'),
         myOrdersList: document.getElementById('my-orders-list'),
         activeCount: document.getElementById('active-count'),
         orderForm: document.getElementById('order-form'),
@@ -168,45 +172,56 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tab === 'profile') loadProfile();
             if (tab === 'credit' && currentUser) CreditUI.loadCreditProfile(currentUser.username);
             if (tab === 'dispute' && currentUser) CreditUI.loadDisputeCenter(currentUser.username);
+            if (tab === 'post-task' && currentUser) {
+                CreditUI.updatePublishWarning(currentUser.creditScore || 100);
+            }
         };
     });
+
+    if (elements.hallFilterBar) {
+        function onHallFilterChange(newFilter) {
+            hallFilter = newFilter;
+            CreditUI.renderHallFilters(elements.hallFilterBar, hallFilter, onHallFilterChange);
+            fetchOrders();
+        }
+        CreditUI.renderHallFilters(elements.hallFilterBar, hallFilter, onHallFilterChange);
+    }
 
     async function fetchOrders() {
         try {
             let url = `/api/orders?category=${encodeURIComponent(currentFilter)}`;
             const resp = await fetch(url);
             const orders = await resp.json();
-            renderOrders(orders, elements.orderList);
+
             const active = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled' && o.status !== 'refunded').length;
             elements.activeCount.textContent = active;
+
+            const { normal, low } = CreditAPI.groupOrdersForHall(orders, currentUser ? currentUser.username : '');
+
+            const filteredNormal = CreditAPI.filterOrders(normal, hallFilter);
+            const filteredLow = CreditAPI.filterOrders(low, hallFilter);
+
+            renderOrderCards(filteredNormal, elements.orderList, false);
+
+            if (elements.orderListLow && elements.lowCreditSection) {
+                const showLow = hallFilter !== CreditAPI.HALL_FILTERS.GOOD_ONLY && filteredLow.length > 0;
+                elements.lowCreditSection.classList.toggle('hidden', !showLow);
+                if (showLow) {
+                    renderOrderCards(filteredLow, elements.orderListLow, false);
+                } else {
+                    elements.orderListLow.innerHTML = '';
+                }
+            }
+
+            if (elements.lowCreditBanner) {
+                const hasLow = low.length > 0 && hallFilter !== CreditAPI.HALL_FILTERS.GOOD_ONLY;
+                elements.lowCreditBanner.classList.toggle('hidden', !hasLow);
+            }
         } catch (err) { console.error(err); }
     }
 
-    async function fetchMyOrders() {
-        try {
-            let url = myOrdersView === 'created'
-                ? `/api/orders?creator=${currentUser.username}`
-                : `/api/orders?worker=${currentUser.username}`;
-            const resp = await fetch(url);
-            const orders = await resp.json();
-            renderOrders(orders, elements.myOrdersList, true);
-        } catch (err) { console.error(err); }
-    }
-
-    function renderOrders(orders, container, isMyOrders = false) {
+    function renderOrderCards(displayOrders, container, isMyOrders) {
         container.innerHTML = '';
-        let displayOrders = orders;
-        let hasLowCredit = false;
-
-        if (!isMyOrders) {
-            displayOrders = orders.filter(o => o.status === 'pending' && o.creator !== currentUser.username);
-            hasLowCredit = displayOrders.some(o => o.creatorLevel === '差' || o.creatorCredit < 60);
-        }
-
-        if (elements.lowCreditBanner) {
-            elements.lowCreditBanner.classList.toggle('hidden', !hasLowCredit);
-        }
-
         if (displayOrders.length === 0) {
             container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 40px;">暂无订单数据</div>';
             return;
@@ -288,6 +303,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            const publisherHtml = isMyOrders
+                ? `<div class="info-row publisher-info">
+                        <i class="fas fa-user-circle"></i>
+                        <span class="${isLowCredit ? 'low-credit-mark' : ''}">发布人: ${order.creator} ${creatorBadge}${isLowCredit ? ' <i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i>' : ''}</span>
+                   </div>`
+                : CreditUI.buildPublisherInfoHtml(order);
+
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span class="badge ${order.status}">${statusMap[order.status] || order.status}</span>
@@ -297,16 +319,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     <h3>${order.package}</h3>
                     <div class="info-row"><i class="fas fa-map-marker-alt"></i> <span>${order.pickup}</span></div>
                     <div class="info-row"><i class="fas fa-door-open"></i> <span>送至: ${order.delivery}</span></div>
-                    <div class="info-row publisher-info">
-                        <i class="fas fa-user-circle"></i>
-                        <span class="${isLowCredit && !isMyOrders ? 'low-credit-mark' : ''}">发布人: ${order.creator} ${creatorBadge}${isLowCredit && !isMyOrders ? ' <i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i>' : ''}</span>
-                    </div>
+                    ${publisherHtml}
                     ${workerSection}
                 </div>
                 <div class="order-footer">${footer}</div>
             `;
             container.appendChild(card);
         });
+
+        if (!isMyOrders) {
+            CreditUI.attachCreditPanels(container);
+        }
+    }
+
+    async function fetchMyOrders() {
+        try {
+            let url = myOrdersView === 'created'
+                ? `/api/orders?creator=${currentUser.username}`
+                : `/api/orders?worker=${currentUser.username}`;
+            const resp = await fetch(url);
+            const orders = await resp.json();
+            renderOrderCards(orders, elements.myOrdersList, true);
+        } catch (err) { console.error(err); }
     }
 
     elements.filterPills.forEach(pill => {

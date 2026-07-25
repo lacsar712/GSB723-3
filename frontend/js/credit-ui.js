@@ -71,6 +71,7 @@ const CreditUI = (() => {
       const credit = await CreditAPI.fetchCredit(username);
       const ratings = await CreditAPI.fetchRatings(username, 'received', 10);
       const given = await CreditAPI.fetchRatings(username, 'given', 10);
+      const events = await CreditAPI.fetchEvents(username, 30);
 
       if (credit.status !== 'success') {
         showToast('加载信用档案失败', 'error');
@@ -107,6 +108,8 @@ const CreditUI = (() => {
           renderRatingList(given);
         };
       }
+
+      renderTimeline(events);
     } catch (err) {
       console.error(err);
       showToast('加载信用档案失败', 'error');
@@ -136,6 +139,64 @@ const CreditUI = (() => {
         </div>
       `;
       container.appendChild(card);
+    });
+  }
+
+  function renderTimeline(events) {
+    const container = document.getElementById('credit-timeline-list');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!events || events.length === 0) {
+      container.innerHTML = '<div class="empty-hint">暂无信用事件</div>';
+      return;
+    }
+    events.forEach(ev => {
+      const meta = CreditAPI.eventTypeMeta(ev.eventType);
+      const item = document.createElement('div');
+      item.className = 'timeline-item';
+      item.innerHTML = `
+        <div class="timeline-dot" style="background:${meta.color};">
+          <i class="fas ${meta.icon}"></i>
+        </div>
+        <div class="timeline-content">
+          <div class="timeline-header">
+            <span class="timeline-type" style="color:${meta.color};">${meta.label}</span>
+            <span class="timeline-time">${CreditAPI.formatTime(ev.createdAt)}</span>
+          </div>
+          <div class="timeline-detail">${ev.detail || ''}</div>
+          ${ev.eventType === 'score_changed' ? `
+            <div class="timeline-score">
+              <span class="score-old">${ev.oldScore}</span>
+              <i class="fas fa-arrow-right"></i>
+              <span class="score-new">${ev.newScore}</span>
+            </div>
+          ` : ''}
+          ${ev.refType === 'dispute' ? `
+            <button class="timeline-link" data-ref-type="dispute" data-ref-id="${ev.refId}">
+              <i class="fas fa-gavel"></i> 查看纠纷 #${ev.refId}
+            </button>
+          ` : ''}
+          ${ev.refType === 'order' ? `
+            <button class="timeline-link" data-ref-type="order" data-ref-id="${ev.refId}">
+              <i class="fas fa-box"></i> 查看订单 #${ev.refId}
+            </button>
+          ` : ''}
+        </div>
+      `;
+      container.appendChild(item);
+    });
+
+    container.querySelectorAll('.timeline-link').forEach(btn => {
+      btn.onclick = () => {
+        const type = btn.dataset.refType;
+        const id = parseInt(btn.dataset.refId);
+        if (type === 'dispute') {
+          openDisputeDetail(id);
+        } else if (type === 'order') {
+          closeAllModals();
+          document.querySelector('[data-tab="my-orders"]').click();
+        }
+      };
     });
   }
 
@@ -192,6 +253,32 @@ const CreditUI = (() => {
       const body = document.getElementById('dispute-detail-body');
       const statusCls = d.status === 'established' ? 'dispute-established'
         : d.status === 'rejected' ? 'dispute-rejected' : 'dispute-pending';
+
+      const currentUser = CreditAPI.getCurrentUser();
+      const isCreator = d.order && currentUser && d.order.creator === currentUser.username;
+      const isWorker = d.order && currentUser && d.order.worker === currentUser.username;
+      const myRole = isCreator ? 'creator' : (isWorker ? 'worker' : null);
+      const iSubmitted = myRole === 'creator' ? d.creatorSubmitted : (myRole === 'worker' ? d.workerSubmitted : false);
+
+      function renderStatement(label, statement, evType, evDesc, ts, isMine) {
+        if (!statement && !ts) {
+          return `<div class="dd-statement dd-statement-empty">
+            <label>${label}</label>
+            <p class="statement-empty-text"><i class="fas fa-clock"></i> 暂未提交</p>
+          </div>`;
+        }
+        return `<div class="dd-statement ${isMine ? 'dd-statement-mine' : ''}">
+          <label>${label} ${isMine ? '<span class="statement-mine-badge">我</span>' : ''}</label>
+          <p>${statement || ''}</p>
+          ${evType ? `<div class="statement-evidence"><i class="fas fa-paperclip"></i> 证据：${CreditAPI.evidenceTypeLabel(evType)}${evDesc ? ' — ' + evDesc : ''}</div>` : ''}
+          <p class="statement-time"><i class="far fa-clock"></i> ${CreditAPI.formatTime(ts)}</p>
+        </div>`;
+      }
+
+      const evidenceOptions = CreditAPI.EVIDENCE_TYPES.map(e =>
+        `<option value="${e.value}">${e.label}</option>`
+      ).join('');
+
       body.innerHTML = `
         <div class="dd-header">
           <h3>纠纷 #${d.id}</h3>
@@ -224,6 +311,44 @@ const CreditUI = (() => {
           <label>发起时间</label>
           <p>${CreditAPI.formatTime(d.createdAt)}</p>
         </div>
+
+        ${d.status === 'pending' ? `
+          <div class="dd-section">
+            <label>双方补充说明</label>
+            <div class="dd-statements">
+              ${renderStatement('发布方说明', d.creatorStatement, d.creatorEvidenceType, d.creatorEvidenceDesc, d.creatorStatementAt, myRole === 'creator')}
+              ${renderStatement('接单方说明', d.workerStatement, d.workerEvidenceType, d.workerEvidenceDesc, d.workerStatementAt, myRole === 'worker')}
+            </div>
+            ${(!d.creatorSubmitted || !d.workerSubmitted) ? `
+              <div class="dd-statement-hint">
+                <i class="fas fa-info-circle"></i> 双方提交补充说明后，将进入人工裁决流程；若双方均未补充，24小时后按接单方责任自动成立
+              </div>
+            ` : ''}
+          </div>
+
+          ${myRole && !iSubmitted ? `
+            <div class="dd-section dd-statement-form-section">
+              <label><i class="fas fa-edit"></i> 提交我的补充说明 <span style="color:#ef4444;">*</span></label>
+              <textarea id="dd-statement-text" maxlength="200" rows="3" placeholder="请描述您的补充说明（最多200字）..."></textarea>
+              <div class="dd-evidence-row">
+                <div class="dd-evidence-field">
+                  <label>证据类型（可选）</label>
+                  <select id="dd-evidence-type">${evidenceOptions}</select>
+                </div>
+                <div class="dd-evidence-field dd-evidence-desc">
+                  <label>证据说明（可选，最多50字）</label>
+                  <input type="text" id="dd-evidence-desc" maxlength="50" placeholder="如：快递柜取件照片">
+                </div>
+              </div>
+              <button class="btn-primary" id="dd-submit-statement-btn" style="margin-top:10px;">提交补充说明</button>
+            </div>
+          ` : myRole && iSubmitted ? `
+            <div class="dd-section dd-already-submitted">
+              <i class="fas fa-check-circle"></i> 您已提交补充说明
+            </div>
+          ` : ''}
+        ` : ''}
+
         ${d.status !== 'pending' ? `
           <div class="dd-section">
             <label>裁决结果</label>
@@ -231,13 +356,53 @@ const CreditUI = (() => {
             <p style="margin-top:6px;color:#64748b;">${d.resolution || ''}</p>
             <p style="color:#94a3b8;font-size:0.85rem;">裁决时间: ${CreditAPI.formatTime(d.resolvedAt)}</p>
           </div>
-        ` : `
-          <div class="dd-section dd-pending-hint">
-            <i class="fas fa-hourglass-half"></i> 纠纷待裁决中，24小时内未补充说明将按接单方责任自动成立
+          <div class="dd-section">
+            <label>双方补充说明</label>
+            <div class="dd-statements">
+              ${renderStatement('发布方说明', d.creatorStatement, d.creatorEvidenceType, d.creatorEvidenceDesc, d.creatorStatementAt, false)}
+              ${renderStatement('接单方说明', d.workerStatement, d.workerEvidenceType, d.workerEvidenceDesc, d.workerStatementAt, false)}
+            </div>
           </div>
-        `}
+        ` : ''}
       `;
       modal.classList.remove('hidden');
+
+      const submitBtn = document.getElementById('dd-submit-statement-btn');
+      if (submitBtn) {
+        submitBtn.onclick = async () => {
+          const textEl = document.getElementById('dd-statement-text');
+          const evTypeEl = document.getElementById('dd-evidence-type');
+          const evDescEl = document.getElementById('dd-evidence-desc');
+          const statement = textEl.value.trim();
+          if (!statement) {
+            showToast('请填写补充说明', 'error');
+            return;
+          }
+          submitBtn.disabled = true;
+          submitBtn.textContent = '提交中...';
+          try {
+            const result = await CreditAPI.submitDisputeStatement({
+              disputeId: d.id,
+              role: myRole,
+              statement: statement.slice(0, 200),
+              evidenceType: evTypeEl.value || '',
+              evidenceDesc: evDescEl.value.trim().slice(0, 50)
+            });
+            if (result.status === 'success') {
+              showToast('补充说明已提交', 'success');
+              openDisputeDetail(id);
+            } else {
+              showToast(result.message || '提交失败', 'error');
+              submitBtn.disabled = false;
+              submitBtn.textContent = '提交补充说明';
+            }
+          } catch (err) {
+            showToast('提交失败', 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = '提交补充说明';
+          }
+        };
+      }
     } catch (err) {
       console.error(err);
       showToast('加载详情失败', 'error');
@@ -336,6 +501,116 @@ const CreditUI = (() => {
     });
   }
 
+  function renderHallFilters(container, activeFilter, onChange) {
+    if (!container) return;
+    const filters = [
+      { key: CreditAPI.HALL_FILTERS.ALL, label: '全部', icon: 'fa-th-large' },
+      { key: CreditAPI.HALL_FILTERS.GOOD_ONLY, label: '仅优良', icon: 'fa-shield-alt' },
+      { key: CreditAPI.HALL_FILTERS.LOW_CREDIT, label: '低信用专区', icon: 'fa-exclamation-triangle' }
+    ];
+    container.innerHTML = '';
+    filters.forEach(f => {
+      const btn = document.createElement('button');
+      btn.className = `hall-filter-btn ${activeFilter === f.key ? 'active' : ''}`;
+      btn.dataset.filter = f.key;
+      btn.innerHTML = `<i class="fas ${f.icon}"></i> ${f.label}`;
+      btn.onclick = () => onChange(f.key);
+      container.appendChild(btn);
+    });
+  }
+
+  function buildPublisherInfoHtml(order) {
+    const creatorLv = CreditAPI.getLevel(order.creatorCredit || 100);
+    const isLow = CreditAPI.isLowCredit(order.creatorCredit || 100);
+    const badge = buildCreditBadge(creatorLv);
+    return `
+      <div class="info-row publisher-info">
+        <i class="fas fa-user-circle"></i>
+        <span class="${isLow ? 'low-credit-mark' : ''}">
+          发布人: ${order.creator} ${badge}
+          <i class="fas fa-info-circle credit-info-trigger" data-creator="${order.creator}" title="查看信用详情"></i>
+        </span>
+      </div>`;
+  }
+
+  function attachCreditPanels(container) {
+    if (!container) return;
+    container.querySelectorAll('.credit-info-trigger').forEach(trigger => {
+      trigger.onclick = async (e) => {
+        e.stopPropagation();
+        const username = trigger.dataset.creator;
+        const existing = document.getElementById('credit-panel-popover');
+        if (existing) existing.remove();
+
+        const panel = document.createElement('div');
+        panel.id = 'credit-panel-popover';
+        panel.className = 'credit-panel-popover';
+        panel.innerHTML = `<div class="credit-panel-loading"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>`;
+        document.body.appendChild(panel);
+
+        const rect = trigger.getBoundingClientRect();
+        panel.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+        panel.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 300) + 'px';
+
+        document.addEventListener('click', function closePanel(ev) {
+          if (!panel.contains(ev.target) && ev.target !== trigger) {
+            panel.remove();
+            document.removeEventListener('click', closePanel);
+          }
+        });
+
+        try {
+          const profile = await CreditAPI.fetchUserProfile(username);
+          if (profile.status !== 'success') {
+            panel.innerHTML = `<div class="credit-panel-error">加载失败</div>`;
+            return;
+          }
+          const lv = CreditAPI.getLevel(profile.creditScore);
+          const ratingsHtml = profile.recentRatings && profile.recentRatings.length > 0
+            ? profile.recentRatings.map(r => `
+                <div class="cp-rating-item">
+                  <span class="cp-rating-stars">${renderStaticStars(r.score)}</span>
+                  <span class="cp-rating-from">${r.rater}</span>
+                  ${r.comment ? `<span class="cp-rating-comment">&ldquo;${r.comment.slice(0,30)}${r.comment.length>30?'...':''}&rdquo;</span>` : ''}
+                </div>`).join('')
+            : '<div class="cp-no-ratings">暂无评价</div>';
+
+          panel.innerHTML = `
+            <div class="cp-header">
+              <strong>${username}</strong>
+              ${buildCreditBadge(lv)}
+            </div>
+            <div class="cp-score-row">
+              <span class="cp-score">${profile.creditScore}</span>
+              <span class="cp-score-label">信用分</span>
+              ${profile.hasActiveDispute ? '<span class="cp-dispute-flag"><i class="fas fa-gavel"></i> 有进行中纠纷</span>' : ''}
+            </div>
+            <div class="cp-ratings-title">近3条评价</div>
+            <div class="cp-ratings">${ratingsHtml}</div>
+          `;
+        } catch (err) {
+          panel.innerHTML = `<div class="credit-panel-error">加载失败</div>`;
+        }
+      };
+    });
+  }
+
+  function updatePublishWarning(score) {
+    const el = document.getElementById('publish-credit-warning');
+    if (!el) return;
+    if (CreditAPI.isLowCredit(score)) {
+      el.className = 'publish-warning publish-warning-danger';
+      el.innerHTML = `<i class="fas fa-exclamation-circle"></i> 您的信用分（${score}）低于60，发布的任务将被归入「低信用专区」`;
+      el.classList.remove('hidden');
+    } else if (CreditAPI.isWarningCredit(score)) {
+      el.className = 'publish-warning publish-warning-warn';
+      el.innerHTML = `<i class="fas fa-info-circle"></i> 您的信用分（${score}）低于75（良），请保持良好履约以提升信用`;
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+
   return {
     setCallbacks,
     showToast,
@@ -348,6 +623,10 @@ const CreditUI = (() => {
     openDisputeDetail,
     closeAllModals,
     buildCreditBadge,
+    buildPublisherInfoHtml,
+    attachCreditPanels,
+    renderHallFilters,
+    updatePublishWarning,
     initModalClose
   };
 })();

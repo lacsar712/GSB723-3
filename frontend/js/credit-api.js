@@ -48,6 +48,68 @@ const CreditAPI = (() => {
     return map[s] || s;
   }
 
+  function eventTypeMeta(type) {
+    const map = {
+      rating_received: { label: '收到评价', icon: 'fa-star', color: '#fbbf24' },
+      rating_given: { label: '给出评价', icon: 'fa-pen', color: '#6366f1' },
+      dispute_created: { label: '发起纠纷', icon: 'fa-gavel', color: '#f43f5e' },
+      dispute_established: { label: '纠纷成立', icon: 'fa-exclamation-circle', color: '#dc2626' },
+      dispute_rejected: { label: '纠纷驳回', icon: 'fa-check-circle', color: '#10b981' },
+      statement_submitted: { label: '补充说明', icon: 'fa-comment-dots', color: '#0ea5e9' },
+      score_changed: { label: '信用分变更', icon: 'fa-chart-line', color: '#8b5cf6' }
+    };
+    return map[type] || { label: type, icon: 'fa-circle', color: '#64748b' };
+  }
+
+  const EVIDENCE_TYPES = [
+    { value: 'screenshot', label: '截图说明' },
+    { value: 'chat', label: '聊天记录' },
+    { value: 'other', label: '其他' },
+    { value: '', label: '无' }
+  ];
+
+  const HALL_FILTERS = {
+    ALL: 'all',
+    GOOD_ONLY: 'good',
+    LOW_CREDIT: 'low'
+  };
+
+  function isGoodCredit(score) {
+    return score >= 75;
+  }
+
+  function isLowCredit(score) {
+    return score < 60;
+  }
+
+  function isWarningCredit(score) {
+    return score < 75 && score >= 60;
+  }
+
+  function groupOrdersForHall(orders, currentUsername) {
+    const pending = orders.filter(o => o.status === 'pending' && o.creator !== currentUsername);
+    const normal = [];
+    const low = [];
+    pending.forEach(o => {
+      if (isLowCredit(o.creatorCredit || 100)) {
+        low.push(o);
+      } else {
+        normal.push(o);
+      }
+    });
+    return { normal, low };
+  }
+
+  function filterOrders(orders, filterType) {
+    if (filterType === HALL_FILTERS.GOOD_ONLY) {
+      return orders.filter(o => isGoodCredit(o.creatorCredit || 100));
+    }
+    if (filterType === HALL_FILTERS.LOW_CREDIT) {
+      return orders.filter(o => isLowCredit(o.creatorCredit || 100));
+    }
+    return orders;
+  }
+
   async function fetchCredit(username) {
     const resp = await fetch(`/api/credit?username=${encodeURIComponent(username)}`);
     return resp.json();
@@ -94,6 +156,30 @@ const CreditAPI = (() => {
     return resp.json();
   }
 
+  async function fetchEvents(username, limit = 30) {
+    const resp = await fetch(`/api/events?username=${encodeURIComponent(username)}&limit=${limit}`);
+    return resp.json();
+  }
+
+  async function submitDisputeStatement(payload) {
+    const resp = await fetch('/api/disputes/statement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return resp.json();
+  }
+
+  function evidenceTypeLabel(value) {
+    const found = EVIDENCE_TYPES.find(e => e.value === value);
+    return found ? found.label : value || '无';
+  }
+
+  async function fetchUserProfile(username) {
+    const resp = await fetch(`/api/user-profile?username=${encodeURIComponent(username)}`);
+    return resp.json();
+  }
+
   function getCurrentUser() {
     try {
       return JSON.parse(localStorage.getItem('user'));
@@ -108,9 +194,14 @@ const CreditAPI = (() => {
   return {
     INITIAL_SCORE, MIN_ACCEPT_SCORE,
     getLevel, canAcceptOrders, computeNewScore,
-    formatTime, maskName, statusLabel, orderStatusLabel,
+    formatTime, maskName, statusLabel, orderStatusLabel, eventTypeMeta,
+    EVIDENCE_TYPES, evidenceTypeLabel,
+    HALL_FILTERS, isGoodCredit, isLowCredit, isWarningCredit,
+    groupOrdersForHall, filterOrders,
     fetchCredit, fetchRatings, submitRating,
     fetchDisputes, fetchDisputeDetail, createDispute, checkDisputes,
+    submitDisputeStatement, fetchUserProfile,
+    fetchEvents,
     getCurrentUser, setCurrentUser
   };
 })();

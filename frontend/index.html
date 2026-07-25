@@ -107,6 +107,7 @@
                     <h1>早安, <span id="welcome-name">同学</span> ! 👋</h1>
                     <p>今天校园里有新的快递任务等待认领。</p>
                 </div>
+                <div class="hall-filter-bar" id="hall-filter-bar"></div>
                 <div id="low-credit-banner" class="low-credit-banner hidden">
                     <i class="fas fa-exclamation-triangle"></i> 以下任务由低信用用户发布，请谨慎接单
                 </div>
@@ -118,6 +119,14 @@
                     <button class="pill" data-filter="中通">中通/圆通</button>
                 </div>
                 <div class="order-grid" id="order-list"></div>
+                <div id="low-credit-section" class="low-credit-section hidden">
+                    <div class="low-credit-section-header">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>低信用专区</span>
+                        <small>发布者信用分低于60</small>
+                    </div>
+                    <div class="order-grid" id="order-list-low"></div>
+                </div>
             </section>
 
             <!-- My Orders -->
@@ -136,6 +145,7 @@
             <section class="view-section hidden" id="post-task-tab">
                 <div class="form-container">
                     <h2><i class="fas fa-pen-nib"></i> 发布代取信息</h2>
+                    <div id="publish-credit-warning" class="publish-warning hidden"></div>
                     <form id="order-form">
                         <div class="form-group">
                             <label>包裹简称 <span style="color: #94a3b8; font-size: 0.85rem;">(最多30字)</span></label>
@@ -199,6 +209,11 @@
                         </div>
                     </div>
                     <div id="credit-ratings-list" class="ratings-list"></div>
+
+                    <div class="credit-section-header" style="margin-top:2rem;">
+                        <h3><i class="fas fa-stream"></i> 事件时间线</h3>
+                    </div>
+                    <div id="credit-timeline-list" class="timeline-list"></div>
                 </div>
             </section>
 
