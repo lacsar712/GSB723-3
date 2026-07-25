@@ -1,4 +1,5 @@
 #include "json_parser.h"
+#include "credit.h"
 #include "database.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -72,15 +73,22 @@ void get_orders_json(char *buf, const char *creator_filter,
     if (!first)
       strcat(buf, ",");
     char item[1024];
+    User *cu = find_user(orders[i].creator);
+    int creator_credit = cu ? cu->credit : INITIAL_CREDIT;
     sprintf(item,
             "{\"id\":%d,\"creator\":\"%s\",\"worker\":\"%s\",\"package\":\"%"
             "s\",\"pickup\":\"%s\",\"delivery\":\"%s\",\"reward\":\"%s\","
-            "\"category\":\"%s\",\"status\":\"%s\"}",
+            "\"category\":\"%s\",\"status\":\"%s\",\"frozen\":%d,"
+            "\"creatorCredit\":%d,\"creatorLevel\":\"%s\","
+            "\"creatorLevelKey\":\"%s\",\"creatorRated\":%d,\"workerRated\":%d}",
             orders[i].id, orders[i].creator,
             (strlen(orders[i].worker) > 0 ? orders[i].worker : ""),
             orders[i].package_info, orders[i].pickup_addr,
             orders[i].delivery_addr, orders[i].reward, orders[i].category,
-            orders[i].status);
+            orders[i].status, orders[i].frozen, creator_credit,
+            credit_level_label(creator_credit),
+            credit_level_key(creator_credit), orders[i].creator_rated,
+            orders[i].worker_rated);
     strcat(buf, item);
     first = 0;
   }

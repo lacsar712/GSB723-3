@@ -1,4 +1,5 @@
 #include "routes.h"
+#include "credit.h"
 #include "database.h"
 #include "json_parser.h"
 #include "logger.h"
@@ -8,7 +9,63 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
+
+/* 转义字符串写入 JSON（处理引号、反斜杠、控制符），避免评语/原因中的特殊字符破坏 JSON */
+static void json_escape(const char *src, char *dst, int max_len) {
+  int j = 0;
+  for (int i = 0; src[i] && j < max_len - 2; i++) {
+    unsigned char c = (unsigned char)src[i];
+    if (c == '"' || c == '\\') {
+      dst[j++] = '\\';
+      dst[j++] = c;
+    } else if (c == '\n' || c == '\r' || c == '\t') {
+      if (j < max_len - 2) {
+        dst[j++] = ' ';
+      }
+    } else {
+      dst[j++] = c;
+    }
+  }
+  dst[j] = '\0';
+}
+
+/* 评分人脱敏：保留首字符，其余用 * 代替（按字节，中文也可读） */
+static void mask_name(const char *src, char *dst, int max_len) {
+  int len = (int)strlen(src);
+  if (len == 0) {
+    strcpy(dst, "匿名");
+    return;
+  }
+  int j = 0;
+  /* 保留第一个 UTF-8 字符 */
+  int first_char_bytes = 1;
+  unsigned char c0 = (unsigned char)src[0];
+  if (c0 >= 0xF0)
+    first_char_bytes = 4;
+  else if (c0 >= 0xE0)
+    first_char_bytes = 3;
+  else if (c0 >= 0xC0)
+    first_char_bytes = 2;
+  for (int i = 0; i < first_char_bytes && src[i] && j < max_len - 1; i++)
+    dst[j++] = src[i];
+  int stars = 2;
+  for (int s = 0; s < stars && j < max_len - 2; s++)
+    dst[j++] = '*';
+  dst[j] = '\0';
+}
+
+static void send_json(int client_socket, const char *status_line,
+                      const char *json_body) {
+  char header[128];
+  snprintf(header, sizeof(header),
+           "HTTP/1.1 %s\r\nContent-Type: application/json; "
+           "charset=UTF-8\r\n\r\n",
+           status_line);
+  send(client_socket, header, strlen(header), 0);
+  send(client_socket, json_body, strlen(json_body), 0);
+}
 
 static void send_file(int client_socket, const char *path,
                       const char *content_type) {
@@ -65,6 +122,7 @@ static void handle_register(int client_socket, char *body) {
   }
 
   if (user_count < MAX_USERS) {
+    u.credit = INITIAL_CREDIT;
     users[user_count++] = u;
     save_data();
     log_message(LOG_INFO, "User registered: %s (%s)", u.username, u.real_name);
@@ -73,8 +131,8 @@ static void handle_register(int client_socket, char *body) {
     snprintf(resp, sizeof(resp),
              "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
              "{\"status\":\"success\",\"username\":\"%s\",\"realName\":\"%s\","
-             "\"major\":\"%s\"}",
-             u.username, u.real_name, u.major);
+             "\"major\":\"%s\",\"credit\":%d}",
+             u.username, u.real_name, u.major, u.credit);
     send(client_socket, resp, strlen(resp), 0);
   } else {
     log_message(LOG_ERROR, "Registration failed: max users reached");
@@ -103,8 +161,9 @@ static void handle_login(int client_socket, char *body) {
     snprintf(resp, sizeof(resp),
              "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
              "{\"status\":\"success\",\"username\":\"%s\",\"realName\":\"%s\","
-             "\"major\":\"%s\"}",
-             users[found].username, users[found].real_name, users[found].major);
+             "\"major\":\"%s\",\"credit\":%d}",
+             users[found].username, users[found].real_name,
+             users[found].major, users[found].credit);
     send(client_socket, resp, strlen(resp), 0);
     log_message(LOG_INFO, "User logged in: %s", user);
   } else {
@@ -208,11 +267,31 @@ static void handle_update_status(int client_socket, char *body) {
 
   for (int i = 0; i < order_count; i++) {
     if (orders[i].id == id) {
-      strcpy(orders[i].status, new_status);
-      // Only set worker if it's a pending order being accepted
+      /* 冻结订单（有纠纷进行中）不可再做普通状态推进 */
+      if (orders[i].frozen) {
+        log_message(LOG_WARN, "Order %d is frozen by dispute", id);
+        send_json(client_socket, "409 Conflict",
+                  "{\"status\":\"error\",\"message\":\"订单存在进行中的纠纷，"
+                  "已冻结，无法操作\"}");
+        return;
+      }
+      /* 接单信用门槛：信用分低于 60 不可再接单（发布仍允许） */
       if (strcmp(new_status, "accepted") == 0 && strlen(worker) > 0) {
+        User *wu = find_user(worker);
+        if (wu && wu->credit < MIN_ACCEPT_CREDIT) {
+          log_message(LOG_WARN, "User %s credit too low to accept: %d", worker,
+                      wu->credit);
+          send_json(client_socket, "403 Forbidden",
+                    "{\"status\":\"error\",\"message\":\"信用分低于 60，"
+                    "暂不可接单\"}");
+          return;
+        }
         strcpy(orders[i].worker, worker);
       }
+      strcpy(orders[i].status, new_status);
+      /* 记录送达时间，用于 2 小时自动完成 */
+      if (strcmp(new_status, "delivered") == 0)
+        orders[i].delivered_at = (long)time(NULL);
       save_data();
       log_message(LOG_INFO, "Order %d status updated to: %s", id, new_status);
       char response[] = "HTTP/1.1 200 OK\r\nContent-Type: "
@@ -259,6 +338,363 @@ static void handle_update_profile(int client_socket, char *body) {
   send(client_socket, response, strlen(response), 0);
 }
 
+/* ============ 信用分 + 纠纷仲裁模块 ============ */
+
+/* 提交评价：订单完成后，发布方与接单方各自只能评价对方一次。
+ * body: {orderId, rater, score, comment} */
+static void handle_submit_rating(int client_socket, char *body) {
+  int order_id = -1, score = 0;
+  char rater[50] = "", comment[160] = "";
+
+  char *oid = strstr(body, "\"orderId\":");
+  if (oid)
+    sscanf(oid + 10, "%d", &order_id);
+  char *sc = strstr(body, "\"score\":");
+  if (sc)
+    sscanf(sc + 8, "%d", &score);
+  parse_json_string(body, "rater", rater, sizeof(rater));
+  parse_json_string(body, "comment", comment, sizeof(comment));
+
+  if (score < 1 || score > 5) {
+    send_json(client_socket, "400 Bad Request",
+              "{\"status\":\"error\",\"message\":\"评分需为 1-5 星\"}");
+    return;
+  }
+
+  Order *o = NULL;
+  for (int i = 0; i < order_count; i++)
+    if (orders[i].id == order_id)
+      o = &orders[i];
+
+  if (!o) {
+    send_json(client_socket, "404 Not Found",
+              "{\"status\":\"error\",\"message\":\"订单不存在\"}");
+    return;
+  }
+  if (strcmp(o->status, "completed") != 0) {
+    send_json(client_socket, "409 Conflict",
+              "{\"status\":\"error\",\"message\":\"订单未完成，暂不可评价\"}");
+    return;
+  }
+
+  int is_creator = strcmp(o->creator, rater) == 0;
+  int is_worker = strcmp(o->worker, rater) == 0;
+  if (!is_creator && !is_worker) {
+    send_json(client_socket, "403 Forbidden",
+              "{\"status\":\"error\",\"message\":\"非订单参与方，无法评价\"}");
+    return;
+  }
+  if ((is_creator && o->creator_rated) || (is_worker && o->worker_rated)) {
+    send_json(client_socket, "409 Conflict",
+              "{\"status\":\"error\",\"message\":\"你已评价过该订单\"}");
+    return;
+  }
+
+  char ratee[50] = "";
+  strcpy(ratee, is_creator ? o->worker : o->creator);
+  if (strlen(ratee) == 0) {
+    send_json(client_socket, "409 Conflict",
+              "{\"status\":\"error\",\"message\":\"缺少被评价对象\"}");
+    return;
+  }
+
+  if (rating_count >= MAX_RATINGS) {
+    send_json(client_socket, "500 Internal Server Error",
+              "{\"status\":\"error\"}");
+    return;
+  }
+
+  /* 记录评分 */
+  Rating *r = &ratings[rating_count++];
+  memset(r, 0, sizeof(Rating));
+  r->id = next_rating_id++;
+  r->order_id = order_id;
+  strcpy(r->rater, rater);
+  strcpy(r->ratee, ratee);
+  r->score = score;
+  strncpy(r->comment, comment, sizeof(r->comment) - 1);
+  r->created_at = (long)time(NULL);
+
+  /* 更新被评价人信用分：新分 = round(旧分*0.8 + 评分*20*0.2) */
+  User *ru = find_user(ratee);
+  int new_credit = 0;
+  if (ru) {
+    ru->credit = credit_new_score(ru->credit, score);
+    new_credit = ru->credit;
+  }
+
+  if (is_creator)
+    o->creator_rated = 1;
+  else
+    o->worker_rated = 1;
+
+  save_data();
+  log_message(LOG_INFO, "Rating submitted: order=%d %s->%s score=%d credit=%d",
+              order_id, rater, ratee, score, new_credit);
+
+  char resp[128];
+  snprintf(resp, sizeof(resp),
+           "{\"status\":\"success\",\"rateeCredit\":%d}", new_credit);
+  send_json(client_socket, "200 OK", resp);
+}
+
+/* 信用档案：当前信用分、等级、近 10 条评分记录。
+ * query: ?username=xxx&direction=received|given */
+static void handle_get_credit(int client_socket, char *query_string) {
+  char username[50] = "", direction[20] = "received";
+  if (query_string) {
+    char *u = strstr(query_string, "username=");
+    if (u)
+      sscanf(u + 9, "%[^& ]", username);
+    char *d = strstr(query_string, "direction=");
+    if (d)
+      sscanf(d + 10, "%[^& ]", direction);
+  }
+
+  User *user = find_user(username);
+  int credit = user ? user->credit : INITIAL_CREDIT;
+  int by_received = strcmp(direction, "given") != 0;
+
+  char *json = malloc(64 * 1024);
+  if (!json) {
+    send_json(client_socket, "500 Internal Server Error",
+              "{\"status\":\"error\"}");
+    return;
+  }
+  int off = 0;
+  off += sprintf(json + off,
+                 "{\"status\":\"success\",\"username\":\"%s\",\"credit\":%d,"
+                 "\"level\":\"%s\",\"levelKey\":\"%s\",\"canAccept\":%s,"
+                 "\"records\":[",
+                 username, credit, credit_level_label(credit),
+                 credit_level_key(credit),
+                 credit < MIN_ACCEPT_CREDIT ? "false" : "true");
+
+  /* 倒序取最近 10 条匹配记录 */
+  int emitted = 0;
+  for (int i = rating_count - 1; i >= 0 && emitted < 10; i--) {
+    Rating *r = &ratings[i];
+    int match = by_received ? (strcmp(r->ratee, username) == 0)
+                            : (strcmp(r->rater, username) == 0);
+    if (!match)
+      continue;
+
+    char masked[64], esc_comment[320];
+    /* 「我收到的」脱敏评分人；「我给出的」脱敏被评价人 */
+    mask_name(by_received ? r->rater : r->ratee, masked, sizeof(masked));
+    json_escape(r->comment, esc_comment, sizeof(esc_comment));
+
+    off += sprintf(json + off,
+                   "%s{\"id\":%d,\"orderId\":%d,\"counterpart\":\"%s\","
+                   "\"score\":%d,\"comment\":\"%s\",\"time\":%ld}",
+                   emitted ? "," : "", r->id, r->order_id, masked, r->score,
+                   esc_comment, r->created_at);
+    emitted++;
+  }
+  off += sprintf(json + off, "]}");
+
+  send_json(client_socket, "200 OK", json);
+  free(json);
+  log_message(LOG_INFO, "Credit profile fetched for %s (%s)", username,
+              direction);
+}
+
+/* 发起纠纷：body {orderId, initiator, reason}
+ * 允许状态：accepted / delivered；同一订单每方只能发起一次。 */
+static void handle_create_dispute(int client_socket, char *body) {
+  int order_id = -1;
+  char initiator[50] = "", reason[320] = "";
+
+  char *oid = strstr(body, "\"orderId\":");
+  if (oid)
+    sscanf(oid + 10, "%d", &order_id);
+  parse_json_string(body, "initiator", initiator, sizeof(initiator));
+  parse_json_string(body, "reason", reason, sizeof(reason));
+
+  if (strlen(reason) == 0) {
+    send_json(client_socket, "400 Bad Request",
+              "{\"status\":\"error\",\"message\":\"请填写纠纷原因\"}");
+    return;
+  }
+
+  Order *o = NULL;
+  for (int i = 0; i < order_count; i++)
+    if (orders[i].id == order_id)
+      o = &orders[i];
+  if (!o) {
+    send_json(client_socket, "404 Not Found",
+              "{\"status\":\"error\",\"message\":\"订单不存在\"}");
+    return;
+  }
+
+  int is_party =
+      strcmp(o->creator, initiator) == 0 || strcmp(o->worker, initiator) == 0;
+  if (!is_party) {
+    send_json(client_socket, "403 Forbidden",
+              "{\"status\":\"error\",\"message\":\"非订单参与方\"}");
+    return;
+  }
+  if (strcmp(o->status, "accepted") != 0 &&
+      strcmp(o->status, "delivered") != 0) {
+    send_json(client_socket, "409 Conflict",
+              "{\"status\":\"error\",\"message\":\"当前订单状态不可发起纠纷\"}");
+    return;
+  }
+
+  /* 同一订单每方只能发起一次纠纷 */
+  for (int i = 0; i < dispute_count; i++) {
+    if (disputes[i].order_id == order_id &&
+        strcmp(disputes[i].initiator, initiator) == 0) {
+      send_json(client_socket, "409 Conflict",
+                "{\"status\":\"error\",\"message\":\"你已对该订单发起过纠纷\"}");
+      return;
+    }
+  }
+
+  if (dispute_count >= MAX_DISPUTES) {
+    send_json(client_socket, "500 Internal Server Error",
+              "{\"status\":\"error\"}");
+    return;
+  }
+
+  Dispute *d = &disputes[dispute_count++];
+  memset(d, 0, sizeof(Dispute));
+  d->id = next_dispute_id++;
+  d->order_id = order_id;
+  strcpy(d->initiator, initiator);
+  strncpy(d->reason, reason, sizeof(d->reason) - 1);
+  strcpy(d->status, "pending");
+  d->created_at = (long)time(NULL);
+  d->resolved_at = 0;
+
+  /* 发起后订单冻结，记录冻结前状态用于驳回恢复 */
+  strcpy(o->prev_status, o->status);
+  o->frozen = 1;
+
+  save_data();
+  log_message(LOG_INFO, "Dispute created: id=%d order=%d by %s", d->id,
+              order_id, initiator);
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":\"success\",\"disputeId\":%d}",
+           d->id);
+  send_json(client_socket, "200 OK", resp);
+}
+
+/* 纠纷列表：可选 ?username=xxx 只看与我相关的订单纠纷 */
+static void handle_list_disputes(int client_socket, char *query_string) {
+  char username[50] = "";
+  if (query_string) {
+    char *u = strstr(query_string, "username=");
+    if (u)
+      sscanf(u + 9, "%[^& ]", username);
+  }
+
+  char *json = malloc(MAX_DISPUTES * 1024);
+  if (!json) {
+    send_json(client_socket, "500 Internal Server Error",
+              "{\"status\":\"error\"}");
+    return;
+  }
+  int off = 0;
+  json[off++] = '[';
+  int first = 1;
+  for (int i = dispute_count - 1; i >= 0; i--) {
+    Dispute *d = &disputes[i];
+    Order *o = NULL;
+    for (int k = 0; k < order_count; k++)
+      if (orders[k].id == d->order_id)
+        o = &orders[k];
+
+    if (strlen(username) > 0 && o) {
+      if (strcmp(o->creator, username) != 0 &&
+          strcmp(o->worker, username) != 0)
+        continue;
+    }
+
+    char esc_reason[640], esc_verdict[640];
+    json_escape(d->reason, esc_reason, sizeof(esc_reason));
+    json_escape(d->verdict, esc_verdict, sizeof(esc_verdict));
+
+    off += sprintf(
+        json + off,
+        "%s{\"id\":%d,\"orderId\":%d,\"initiator\":\"%s\",\"reason\":\"%s\","
+        "\"status\":\"%s\",\"verdict\":\"%s\",\"createdAt\":%ld,"
+        "\"resolvedAt\":%ld,\"package\":\"%s\",\"creator\":\"%s\","
+        "\"worker\":\"%s\",\"reward\":\"%s\"}",
+        first ? "" : ",", d->id, d->order_id, d->initiator, esc_reason,
+        d->status, esc_verdict, d->created_at, d->resolved_at,
+        o ? o->package_info : "", o ? o->creator : "", o ? o->worker : "",
+        o ? o->reward : "");
+    first = 0;
+  }
+  json[off++] = ']';
+  json[off] = '\0';
+
+  send_json(client_socket, "200 OK", json);
+  free(json);
+  log_message(LOG_INFO, "Disputes listed for %s",
+              username[0] ? username : "all");
+}
+
+/* 裁决纠纷：body {disputeId, verdict:"upheld"|"rejected"}
+ * upheld=成立(退款,订单撤回退市)；rejected=驳回(恢复到发起前状态)。 */
+static void handle_arbitrate_dispute(int client_socket, char *body) {
+  int dispute_id = -1;
+  char verdict[20] = "";
+  char *did = strstr(body, "\"disputeId\":");
+  if (did)
+    sscanf(did + 12, "%d", &dispute_id);
+  parse_json_string(body, "verdict", verdict, sizeof(verdict));
+
+  Dispute *d = NULL;
+  for (int i = 0; i < dispute_count; i++)
+    if (disputes[i].id == dispute_id)
+      d = &disputes[i];
+  if (!d) {
+    send_json(client_socket, "404 Not Found",
+              "{\"status\":\"error\",\"message\":\"纠纷不存在\"}");
+    return;
+  }
+  if (strcmp(d->status, "pending") != 0) {
+    send_json(client_socket, "409 Conflict",
+              "{\"status\":\"error\",\"message\":\"该纠纷已裁决\"}");
+    return;
+  }
+
+  Order *o = NULL;
+  for (int i = 0; i < order_count; i++)
+    if (orders[i].id == d->order_id)
+      o = &orders[i];
+
+  if (strcmp(verdict, "upheld") == 0) {
+    strcpy(d->status, "upheld");
+    strcpy(d->verdict, "纠纷成立，悬赏金额已标记退回，订单撤回退市。");
+    if (o) {
+      o->frozen = 0;
+      strcpy(o->status, "cancelled");
+    }
+  } else if (strcmp(verdict, "rejected") == 0) {
+    strcpy(d->status, "rejected");
+    strcpy(d->verdict, "纠纷驳回，订单恢复到发起前状态继续流转。");
+    if (o) {
+      o->frozen = 0;
+      if (strlen(o->prev_status) > 0)
+        strcpy(o->status, o->prev_status);
+    }
+  } else {
+    send_json(client_socket, "400 Bad Request",
+              "{\"status\":\"error\",\"message\":\"裁决结果无效\"}");
+    return;
+  }
+  d->resolved_at = (long)time(NULL);
+
+  save_data();
+  log_message(LOG_INFO, "Dispute %d arbitrated: %s", dispute_id, verdict);
+  send_json(client_socket, "200 OK", "{\"status\":\"success\"}");
+}
+
+
 void handle_request(int client_socket) {
   char buffer[BUFFER_SIZE];
   memset(buffer, 0, BUFFER_SIZE);
@@ -268,6 +704,9 @@ void handle_request(int client_socket) {
     close(client_socket);
     return;
   }
+
+  /* 每次请求触发一次时间驱动的自动裁决 / 自动完成检查 */
+  run_auto_tasks();
 
   // Ensure full body for POST
   if (strstr(buffer, "POST ")) {
@@ -296,6 +735,12 @@ void handle_request(int client_socket) {
     send_file(client_socket, "frontend/css/style.css", "text/css");
   } else if (strstr(buffer, "GET /script.js")) {
     send_file(client_socket, "frontend/js/script.js", "application/javascript");
+  } else if (strstr(buffer, "GET /credit-api.js")) {
+    send_file(client_socket, "frontend/js/credit-api.js",
+              "application/javascript");
+  } else if (strstr(buffer, "GET /credit-ui.js")) {
+    send_file(client_socket, "frontend/js/credit-ui.js",
+              "application/javascript");
   } else if (strstr(buffer, "POST /api/register")) {
     char *body = strstr(buffer, "\r\n\r\n");
     if (body) {
@@ -330,6 +775,32 @@ void handle_request(int client_socket) {
       body += 4;
       handle_update_profile(client_socket, body);
     }
+  } else if (strstr(buffer, "POST /api/ratings")) {
+    char *body = strstr(buffer, "\r\n\r\n");
+    if (body) {
+      body += 4;
+      handle_submit_rating(client_socket, body);
+    }
+  } else if (strstr(buffer, "GET /api/credit")) {
+    char *path_start = strstr(buffer, "GET /api/credit");
+    char *q = strstr(path_start, "?");
+    handle_get_credit(client_socket, q);
+  } else if (strstr(buffer, "POST /api/dispute_arbitrate")) {
+    char *body = strstr(buffer, "\r\n\r\n");
+    if (body) {
+      body += 4;
+      handle_arbitrate_dispute(client_socket, body);
+    }
+  } else if (strstr(buffer, "POST /api/disputes")) {
+    char *body = strstr(buffer, "\r\n\r\n");
+    if (body) {
+      body += 4;
+      handle_create_dispute(client_socket, body);
+    }
+  } else if (strstr(buffer, "GET /api/disputes")) {
+    char *path_start = strstr(buffer, "GET /api/disputes");
+    char *q = strstr(path_start, "?");
+    handle_list_disputes(client_socket, q);
   } else {
     log_message(LOG_WARN, "404 Not Found: %.50s", buffer);
     char response[] = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";

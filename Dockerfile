@@ -9,7 +9,7 @@ WORKDIR /app
 COPY . .
 
 # Compile the C application statically for maximum compatibility in Alpine
-RUN gcc -O2 backend/main.c backend/routes.c backend/database.c backend/json_parser.c backend/logger.c -o server -static
+RUN gcc -O2 backend/main.c backend/routes.c backend/database.c backend/json_parser.c backend/logger.c backend/credit.c -o server -static -lm
 
 # Expose the application port
 EXPOSE 2082
