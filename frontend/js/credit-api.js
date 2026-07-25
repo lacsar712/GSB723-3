@@ -77,6 +77,13 @@
         return jsonOrThrow(resp);
     }
 
+    async function getEvents(username, limit) {
+        const u = encodeURIComponent(username || '');
+        const lim = limit || 20;
+        const resp = await fetch('/api/events?user=' + u + '&limit=' + lim);
+        return jsonOrThrow(resp);
+    }
+
     async function getDispute(id) {
         const resp = await fetch('/api/disputes?id=' + encodeURIComponent(id));
         return jsonOrThrow(resp);
@@ -91,11 +98,14 @@
         return jsonOrThrow(resp);
     }
 
-    async function respondDispute(id, user, response) {
+    async function respondDispute(id, user, response, evidence) {
+        const payload = { id, user, response: response || '' };
+        if (evidence && evidence.type) payload.evidenceType = evidence.type;
+        if (evidence && evidence.desc) payload.evidenceDesc = evidence.desc;
         const resp = await fetch('/api/dispute/respond', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, user, response })
+            body: JSON.stringify(payload)
         });
         return jsonOrThrow(resp);
     }
@@ -116,8 +126,33 @@
         rejected: '已驳回'
     };
 
+    const EVENT_META = {
+        rating_received: { label: '收到评价', icon: 'fa-star', tone: 'rating' },
+        rating_given:    { label: '给出评价', icon: 'fa-pen-to-square', tone: 'rating' },
+        dispute_filed:   { label: '发起纠纷', icon: 'fa-gavel', tone: 'dispute' },
+        dispute_upheld:  { label: '纠纷成立', icon: 'fa-flag-checkered', tone: 'dispute' },
+        dispute_rejected:{ label: '纠纷驳回', icon: 'fa-circle-check', tone: 'dispute' },
+        credit_change:   { label: '信用分变更', icon: 'fa-shield-halved', tone: 'credit' }
+    };
+
     function statusLabel(s) { return STATUS_LABELS[s] || s; }
     function disputeStatusLabel(s) { return DISPUTE_STATUS_LABELS[s] || s; }
+    function eventMeta(type) {
+        return EVENT_META[type] || { label: type || '事件', icon: 'fa-circle-info', tone: 'neutral' };
+    }
+    function eventTypeLabel(type) { return eventMeta(type).label; }
+
+    const EVIDENCE_TYPES = [
+        { value: '', label: '无（可选）' },
+        { value: 'screenshot', label: '截图说明' },
+        { value: 'chat', label: '聊天记录' },
+        { value: 'other', label: '其他' }
+    ];
+
+    function evidenceTypeLabel(t) {
+        const hit = EVIDENCE_TYPES.find(x => x.value === t);
+        return hit ? hit.label : (t || '无');
+    }
 
     function canFileDispute(order, username) {
         if (!order || !username) return false;
@@ -171,10 +206,15 @@
         submitRating,
         getDisputes,
         getDispute,
+        getEvents,
         createDispute,
         respondDispute,
         statusLabel,
         disputeStatusLabel,
+        eventMeta,
+        eventTypeLabel,
+        EVIDENCE_TYPES,
+        evidenceTypeLabel,
         canFileDispute,
         canRateOrder,
         ratingTarget,

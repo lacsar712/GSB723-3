@@ -1,0 +1,2 @@
+GCC_EXIT=0
+---STDERR---

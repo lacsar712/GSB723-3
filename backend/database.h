@@ -17,6 +17,10 @@ extern Dispute disputes[MAX_DISPUTES];
 extern int dispute_count;
 extern int next_dispute_id;
 
+extern CreditEvent events[MAX_EVENTS];
+extern int event_count;
+extern int next_event_id;
+
 void save_data();
 void load_data();
 
@@ -31,5 +35,10 @@ Dispute *find_dispute_by_order(int order_id);
 Dispute *find_dispute(int id);
 
 void run_auto_settlement();
+void rule_dispute(Dispute *d, int upheld, const char *result_text);
+
+void add_event(const char *user, const char *type, int order_id, int dispute_id,
+               int rating_id, const char *actor, int before, int after,
+               int rating_score, const char *detail);
 
 #endif

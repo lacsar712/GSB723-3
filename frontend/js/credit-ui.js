@@ -72,6 +72,7 @@
             el.creditStatus.textContent = '加载失败：' + e.message;
         }
         await loadRatingList();
+        await loadTimeline();
     }
 
     function renderCreditHero(info) {
@@ -129,6 +130,121 @@
         }).join('');
     }
 
+    /* ---------- Credit Event Timeline ---------- */
+
+    async function loadTimeline() {
+        const u = API.currentUser();
+        if (!u || !el.timeline) return;
+        el.timeline.innerHTML = '<div class="timeline-empty">加载中...</div>';
+        try {
+            const list = await API.getEvents(u.username, 20);
+            renderTimeline(list);
+        } catch (e) {
+            el.timeline.innerHTML = '<div class="timeline-empty">时间线加载失败：' + esc(e.message) + '</div>';
+        }
+    }
+
+    function renderTimeline(list) {
+        if (!el.timeline) return;
+        if (!list || list.length === 0) {
+            el.timeline.innerHTML = '<div class="timeline-empty">暂无信用事件。完成一单并互评后，你会在这里看到评价、纠纷与信用分变化。</div>';
+            return;
+        }
+        el.timeline.innerHTML = list.map(ev => {
+            const meta = API.eventMeta(ev.type);
+            const tone = meta.tone || 'neutral';
+            const when = esc(ev.time || API.formatTime(ev.createdAt));
+            let scoreBlock = '';
+            if (ev.type === 'credit_change' && ev.scoreBefore != null && ev.scoreAfter != null) {
+                const down = ev.scoreAfter < ev.scoreBefore;
+                scoreBlock = '<div class="score-diff ' + (down ? 'down' : '') + '">'
+                    + '<i class="fas fa-' + (down ? 'arrow-down' : 'arrow-up') + ' arrow"></i>'
+                    + '信用分 ' + ev.scoreBefore + ' → ' + '<strong>' + ev.scoreAfter + '</strong>'
+                    + '</div>';
+            } else if (ev.type === 'rating_received' || ev.type === 'rating_given') {
+                scoreBlock = '<div class="score-diff" style="background:#fffbeb;color:#92400e;">'
+                    + starsHtml(ev.ratingScore)
+                    + '</div>';
+            }
+            let linkChip = '';
+            if (ev.disputeId) {
+                linkChip = '<span class="chip dispute"><i class="fas fa-scale-balanced"></i> 纠纷 #' + ev.disputeId + '</span>';
+            }
+            if (ev.orderId) {
+                linkChip += '<span class="chip jump"><i class="fas fa-hashtag"></i> 订单 #' + ev.orderId + '</span>';
+            }
+            const actor = ev.actor && ev.actor !== 'system'
+                ? ('<span class="chip"><i class="fas fa-user"></i> ' + esc(API.maskName(ev.actor)) + '</span>')
+                : '<span class="chip"><i class="fas fa-robot"></i> 系统</span>';
+
+            return '<div class="timeline-item tone-' + esc(tone) + '" data-order="' + ev.orderId + '" data-dispute="' + (ev.disputeId || '') + '">'
+                + '<div class="timeline-icon"><i class="fas ' + esc(meta.icon) + '"></i></div>'
+                + '<div class="timeline-top">'
+                +   '<div class="timeline-type"><i class="fas ' + esc(meta.icon) + '"></i> ' + esc(meta.label) + '</div>'
+                +   '<div class="timeline-time"><i class="far fa-clock"></i> ' + when + '</div>'
+                + '</div>'
+                + '<div class="timeline-detail">' + esc(ev.detail || '') + '</div>'
+                + '<div class="timeline-meta">'
+                +   actor
+                +   linkChip
+                +   (ev.type === 'credit_change' ? '' : scoreBlock)
+                + '</div>'
+                + (ev.type === 'credit_change' ? '<div class="timeline-meta" style="margin-top:6px;">' + scoreBlock + '</div>' : '')
+                + '</div>';
+        }).join('');
+
+        el.timeline.querySelectorAll('.timeline-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const disputeId = item.dataset.dispute;
+                const orderId = parseInt(item.dataset.order, 10);
+                if (disputeId) {
+                    openDisputeDetail(parseInt(disputeId, 10));
+                    return;
+                }
+                if (orderId > 0) {
+                    jumpToOrder(orderId);
+                }
+            });
+        });
+    }
+
+    function jumpToOrder(orderId) {
+        const nav = document.querySelector('[data-tab="my-orders"]');
+        if (!nav) { toast('未找到订单入口'); return; }
+        nav.click();
+        const tryFlash = () => {
+            const container = $('my-orders-list');
+            if (!container) return false;
+            const cards = container.querySelectorAll('.order-card');
+            for (const card of cards) {
+                const btn = card.querySelector('button[onclick^="updateStatus"]');
+                if (btn && btn.getAttribute('onclick').indexOf('updateStatus(' + orderId + ',') === 0) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    card.style.transition = 'box-shadow .3s';
+                    card.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.55), 0 10px 24px rgba(99,102,241,0.25)';
+                    setTimeout(() => { card.style.boxShadow = ''; }, 1800);
+                    return true;
+                }
+            }
+            return false;
+        };
+        setTimeout(() => {
+            if (tryFlash()) return;
+            const createdBtn = $('show-created');
+            const acceptedBtn = $('show-accepted');
+            if (createdBtn && acceptedBtn) {
+                createdBtn.click();
+                setTimeout(() => {
+                    if (tryFlash()) return;
+                    acceptedBtn.click();
+                    setTimeout(() => {
+                        if (!tryFlash()) toast('订单 #' + orderId + ' 不在当前可见列表中（可能已完成或不在你名下）');
+                    }, 400);
+                }, 400);
+            }
+        }, 300);
+    }
+
     /* ---------- Dispute Center Tab ---------- */
 
     async function loadDisputesTab() {
@@ -147,10 +263,16 @@
             el.disputeList.innerHTML = '<div class="rating-empty">暂无纠纷单。若订单存在争议，可在「我的订单」对应卡片上发起纠纷。</div>';
             return;
         }
+        const cu = API.currentUser();
+        const myName = cu ? cu.username : '';
         el.disputeList.innerHTML = list.map(d => {
             const statusCls = d.status;
             const statusTxt = API.disputeStatusLabel(d.status);
             const isPending = d.status === 'pending';
+            const isCreator = myName && d.creator === myName;
+            const isWorker = myName && d.worker === myName;
+            const alreadyResponded = (isCreator && d.hasCreatorResp) || (isWorker && d.hasWorkerResp);
+            const canRespond = isPending && (isCreator || isWorker) && !alreadyResponded;
             return '<div class="dispute-card status-' + esc(statusCls) + '" data-id="' + d.id + '">'
                 + '<div class="dispute-head">'
                 +   '<h4><i class="fas fa-scale-balanced"></i> 纠纷 #' + d.id + ' · 订单 #' + d.orderId + '</h4>'
@@ -167,7 +289,8 @@
                 + (d.result ? '<div class="dispute-result-text ' + esc(statusCls) + '"><strong>裁决结果：</strong>' + esc(d.result) + '</div>' : '')
                 + '<div class="dispute-actions">'
                 +   '<button class="btn-outline" data-act="view" style="flex:0 0 auto;padding:8px 18px;">查看详情</button>'
-                +   (isPending ? '<button class="btn-primary" data-act="respond" style="flex:0 0 auto;padding:8px 18px;background:var(--accent);">补充说明</button>' : '')
+                +   (canRespond ? '<button class="btn-primary" data-act="respond" style="flex:0 0 auto;padding:8px 18px;background:var(--accent);">补充说明</button>' : '')
+                +   (isPending && alreadyResponded ? '<span class="muted-hint" style="align-self:center;"><i class="fas fa-check"></i> 你已提交补充说明</span>' : '')
                 + '</div>'
                 + '</div>';
         }).join('');
@@ -191,6 +314,13 @@
             const canRespond = isPending && (isCreator || isWorker);
             const alreadyResponded = (isCreator && d.creatorResp) || (isWorker && d.workerResp);
 
+            const evidenceLine = (type, desc, time) => {
+                const parts = [];
+                if (type) parts.push('<span class="evidence-chip"><i class="fas fa-paperclip"></i> ' + esc(API.evidenceTypeLabel(type)) + (desc ? '：' + esc(desc) : '') + '</span>');
+                if (time) parts.push('<span class="evidence-time"><i class="far fa-clock"></i> ' + esc(time) + '</span>');
+                return parts.length ? '<div class="evidence-row">' + parts.join('') + '</div>' : '';
+            };
+
             let html = '<div class="dispute-info" style="margin-top:14px;">'
                 + '<div><i class="fas fa-hashtag"></i> <strong>纠纷编号：</strong>#' + d.id + '</div>'
                 + '<div><i class="fas fa-box"></i> <strong>关联订单：</strong>#' + d.orderId + ' · ' + esc(d.package || '') + '</div>'
@@ -201,8 +331,20 @@
                 + '</div>'
                 + '<div class="dispute-reason-text" style="margin-top:12px;"><strong>纠纷原因（发起人：' + esc(API.maskName(d.initiator)) + '）：</strong><br>' + esc(d.reason) + '</div>';
 
-            if (d.creatorResp) html += '<div class="resp-row creator"><span class="resp-label">发布方说明：</span>' + esc(d.creatorResp) + '</div>';
-            if (d.workerResp) html += '<div class="resp-row worker"><span class="resp-label">接单方说明：</span>' + esc(d.workerResp) + '</div>';
+            if (d.creatorResp) {
+                html += '<div class="resp-row creator"><span class="resp-label">发布方说明：</span>' + esc(d.creatorResp)
+                    + evidenceLine(d.creatorEvidenceType, d.creatorEvidenceDesc, d.creatorRespTime)
+                    + '</div>';
+            } else if (isPending) {
+                html += '<div class="resp-row creator muted"><span class="resp-label">发布方：</span>暂未补充说明</div>';
+            }
+            if (d.workerResp) {
+                html += '<div class="resp-row worker"><span class="resp-label">接单方说明：</span>' + esc(d.workerResp)
+                    + evidenceLine(d.workerEvidenceType, d.workerEvidenceDesc, d.workerRespTime)
+                    + '</div>';
+            } else if (isPending) {
+                html += '<div class="resp-row worker muted"><span class="resp-label">接单方：</span>暂未补充说明</div>';
+            }
 
             if (d.resolvedTime) {
                 html += '<div class="rating-meta" style="margin-top:10px;"><i class="fas fa-flag-checkered"></i> 裁决时间：' + esc(d.resolvedTime) + '</div>';
@@ -210,17 +352,21 @@
             if (d.result) {
                 html += '<div class="dispute-result-text ' + esc(d.status) + '"><strong>裁决结果：</strong>' + esc(d.result) + '</div>';
             } else if (isPending) {
-                html += '<div class="dispute-warn" style="margin-top:12px;">纠纷审理中：双方可补充说明；若 24 小时内双方均未补充，系统将按接单方责任自动裁决并退款。</div>';
+                html += '<div class="dispute-warn" style="margin-top:12px;">纠纷审理中：双方可补充说明（仅一次）；<strong>若 24 小时内双方均未补充，系统将按接单方责任自动裁决并退款</strong>。任一方已补充则不会触发该自动分支，须等待人工/后续裁决。</div>';
             }
 
             $('dispute-detail-body').innerHTML = html;
 
             const block = $('dispute-respond-block');
             const respondInput = $('dispute-respond-text');
+            const evType = $('dispute-respond-evtype');
+            const evDesc = $('dispute-respond-evdesc');
             if (canRespond && !alreadyResponded) {
                 block.classList.remove('hidden');
                 respondInput.value = '';
-                respondInput.placeholder = isCreator ? '以发布方身份提供证据或说明（提交后不可更改）' : '以接单方身份提供证据或说明（提交后不可更改）';
+                if (evType) evType.value = '';
+                if (evDesc) evDesc.value = '';
+                respondInput.placeholder = isCreator ? '以发布方身份提供证据或说明（提交后不可更改，≤200字）' : '以接单方身份提供证据或说明（提交后不可更改，≤200字）';
             } else {
                 block.classList.add('hidden');
             }
@@ -239,11 +385,18 @@
         const u = API.currentUser();
         const text = $('dispute-respond-text').value.trim();
         if (!text) { toast('请填写补充说明'); return; }
+        const evTypeEl = $('dispute-respond-evtype');
+        const evDescEl = $('dispute-respond-evdesc');
+        const evidence = {
+            type: evTypeEl ? evTypeEl.value : '',
+            desc: evDescEl ? evDescEl.value.trim() : ''
+        };
         try {
-            await API.respondDispute(currentDetailDisputeId, u.username, text);
+            await API.respondDispute(currentDetailDisputeId, u.username, text, evidence);
             toast('补充说明已提交');
             $('dispute-detail-modal').classList.add('hidden');
             loadDisputesTab();
+            if (global.App && global.App.refreshCurrentView) global.App.refreshCurrentView();
         } catch (e) { toast(e.message); }
     }
 
@@ -445,6 +598,7 @@
         el.givenCount = $('credit-given-count');
         el.receivedCount = $('credit-received-count');
         el.ratingList = $('rating-list');
+        el.timeline = $('credit-timeline');
         el.disputeList = $('dispute-list');
     }
 

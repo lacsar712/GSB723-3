@@ -13,5 +13,6 @@ void get_credit_json(char *buf, const char *username);
 void get_credits_json(char *buf);
 void get_disputes_json(char *buf, const char *user);
 void get_dispute_json(char *buf, const Dispute *d);
+void get_events_json(char *buf, const char *user, int limit);
 
 #endif

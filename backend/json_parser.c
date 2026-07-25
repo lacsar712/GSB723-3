@@ -249,7 +249,7 @@ void get_disputes_json(char *buf, const char *user) {
     if (!first) strcat(buf, ",");
     first = 0;
 
-    char esc_init[60], esc_reason[200], esc_status[20], esc_result[300],
+    char esc_init[60], esc_reason[200], esc_status[20], esc_result[400],
          esc_pkg[200], esc_cr[60], esc_wk[60], esc_prev[30];
     json_escape(esc_init, d->initiator, sizeof(esc_init));
     json_escape(esc_reason, d->reason, sizeof(esc_reason));
@@ -264,19 +264,21 @@ void get_disputes_json(char *buf, const char *user) {
     fmt_ts(created, sizeof(created), d->created_at);
     fmt_ts(resolved, sizeof(resolved), d->resolved_at);
 
-    char item[1500];
+    char item[1600];
     snprintf(item, sizeof(item),
              "{\"id\":%d,\"orderId\":%d,\"initiator\":\"%s\",\"reason\":\"%s\","
              "\"status\":\"%s\",\"result\":\"%s\",\"createdAt\":%ld,"
              "\"resolvedAt\":%ld,\"createdTime\":\"%s\",\"resolvedTime\":\"%s\","
              "\"package\":\"%s\",\"creator\":\"%s\",\"worker\":\"%s\","
              "\"reward\":\"%s\",\"prevStatus\":\"%s\","
-             "\"hasCreatorResp\":%s,\"hasWorkerResp\":%s}",
+             "\"hasCreatorResp\":%s,\"hasWorkerResp\":%s,"
+             "\"creatorRespAt\":%ld,\"workerRespAt\":%ld}",
              d->id, d->order_id, esc_init, esc_reason, esc_status, esc_result,
              d->created_at, d->resolved_at, created, resolved, esc_pkg, esc_cr,
              esc_wk, o ? o->reward : "", esc_prev,
              strlen(d->creator_resp) > 0 ? "true" : "false",
-             strlen(d->worker_resp) > 0 ? "true" : "false");
+             strlen(d->worker_resp) > 0 ? "true" : "false",
+             d->creator_resp_at, d->worker_resp_at);
     strcat(buf, item);
   }
   strcat(buf, "]");
@@ -285,9 +287,11 @@ void get_disputes_json(char *buf, const char *user) {
 void get_dispute_json(char *buf, const Dispute *d) {
   if (!d) { strcat(buf, "null"); return; }
   Order *o = find_order(d->order_id);
-  char esc_init[60], esc_reason[200], esc_status[20], esc_result[400],
-      esc_cr[160], esc_wr[160], esc_pkg[200], esc_cr_user[60], esc_wk[60],
-      esc_rew[40], esc_prev[30];
+  char esc_init[60], esc_reason[200], esc_status[20], esc_result[500],
+      esc_cr[900], esc_wr[900], esc_pkg[200], esc_cr_user[60], esc_wk[60],
+      esc_rew[40], esc_prev[30],
+      esc_cr_evtype[40], esc_cr_evdesc[260],
+      esc_wk_evtype[40], esc_wk_evdesc[260];
   json_escape(esc_init, d->initiator, sizeof(esc_init));
   json_escape(esc_reason, d->reason, sizeof(esc_reason));
   json_escape(esc_status, d->status, sizeof(esc_status));
@@ -299,19 +303,67 @@ void get_dispute_json(char *buf, const Dispute *d) {
   json_escape(esc_wk, o ? o->worker : "", sizeof(esc_wk));
   json_escape(esc_rew, o ? o->reward : "", sizeof(esc_rew));
   json_escape(esc_prev, d->prev_status, sizeof(esc_prev));
+  json_escape(esc_cr_evtype, d->creator_evidence_type, sizeof(esc_cr_evtype));
+  json_escape(esc_cr_evdesc, d->creator_evidence_desc, sizeof(esc_cr_evdesc));
+  json_escape(esc_wk_evtype, d->worker_evidence_type, sizeof(esc_wk_evtype));
+  json_escape(esc_wk_evdesc, d->worker_evidence_desc, sizeof(esc_wk_evdesc));
 
-  char created[32], resolved[32];
+  char created[32], resolved[32], cr_at[32], wr_at[32];
   fmt_ts(created, sizeof(created), d->created_at);
   fmt_ts(resolved, sizeof(resolved), d->resolved_at);
+  fmt_ts(cr_at, sizeof(cr_at), d->creator_resp_at);
+  fmt_ts(wr_at, sizeof(wr_at), d->worker_resp_at);
 
-  snprintf(buf + strlen(buf), 1800,
+  snprintf(buf + strlen(buf), 3200,
            "{\"id\":%d,\"orderId\":%d,\"initiator\":\"%s\",\"reason\":\"%s\","
            "\"status\":\"%s\",\"result\":\"%s\",\"createdAt\":%ld,"
            "\"resolvedAt\":%ld,\"createdTime\":\"%s\",\"resolvedTime\":\"%s\","
            "\"package\":\"%s\",\"creator\":\"%s\",\"worker\":\"%s\","
            "\"reward\":\"%s\",\"prevStatus\":\"%s\","
-           "\"creatorResp\":\"%s\",\"workerResp\":\"%s\"}",
+           "\"creatorResp\":\"%s\",\"workerResp\":\"%s\","
+           "\"creatorEvidenceType\":\"%s\",\"creatorEvidenceDesc\":\"%s\","
+           "\"workerEvidenceType\":\"%s\",\"workerEvidenceDesc\":\"%s\","
+           "\"creatorRespAt\":%ld,\"workerRespAt\":%ld,"
+           "\"creatorRespTime\":\"%s\",\"workerRespTime\":\"%s\"}",
            d->id, d->order_id, esc_init, esc_reason, esc_status, esc_result,
            d->created_at, d->resolved_at, created, resolved, esc_pkg,
-           esc_cr_user, esc_wk, esc_rew, esc_prev, esc_cr, esc_wr);
+           esc_cr_user, esc_wk, esc_rew, esc_prev, esc_cr, esc_wr,
+           esc_cr_evtype, esc_cr_evdesc, esc_wk_evtype, esc_wk_evdesc,
+           d->creator_resp_at, d->worker_resp_at, cr_at, wr_at);
+}
+
+void get_events_json(char *buf, const char *user, int limit) {
+  strcat(buf, "[");
+  int first = 1;
+  int added = 0;
+  if (limit <= 0) limit = 20;
+  if (limit > 100) limit = 100;
+  for (int i = event_count - 1; i >= 0 && added < limit; i--) {
+    CreditEvent *e = &events[i];
+    if (user && strlen(user) > 0 && strcmp(e->user, user) != 0) continue;
+
+    if (!first) strcat(buf, ",");
+    first = 0;
+    added++;
+
+    char esc_type[32], esc_actor[60], esc_detail[400];
+    json_escape(esc_type, e->type, sizeof(esc_type));
+    json_escape(esc_actor, e->actor, sizeof(esc_actor));
+    json_escape(esc_detail, e->detail, sizeof(esc_detail));
+
+    char when[32];
+    fmt_ts(when, sizeof(when), e->created_at);
+
+    char item[900];
+    snprintf(item, sizeof(item),
+             "{\"id\":%d,\"user\":\"%s\",\"type\":\"%s\",\"orderId\":%d,"
+             "\"disputeId\":%d,\"ratingId\":%d,\"actor\":\"%s\","
+             "\"scoreBefore\":%d,\"scoreAfter\":%d,\"ratingScore\":%d,"
+             "\"detail\":\"%s\",\"createdAt\":%ld,\"time\":\"%s\"}",
+             e->id, e->user, esc_type, e->order_id, e->dispute_id, e->rating_id,
+             esc_actor, e->score_before, e->score_after, e->rating_score,
+             esc_detail, e->created_at, when);
+    strcat(buf, item);
+  }
+  strcat(buf, "]");
 }

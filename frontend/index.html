@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>校递快跑 - 大学生代取快递平台</title>
     <link rel="stylesheet" href="style.css?v=5">
-    <link rel="stylesheet" href="credit.css?v=2">
+    <link rel="stylesheet" href="credit.css?v=4">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -242,6 +242,12 @@
                     </div>
                 </div>
                 <div class="rating-list" id="rating-list"></div>
+
+                <div class="credit-list-header" style="margin-top:34px;">
+                    <h3><i class="fas fa-timeline"></i> 信用事件时间线</h3>
+                    <span class="muted-hint">按时间倒序，点击条目可跳回关联订单或纠纷</span>
+                </div>
+                <div class="timeline" id="credit-timeline"></div>
             </section>
 
             <!-- Dispute Center -->
@@ -353,8 +359,23 @@
             <h2><i class="fas fa-scale-balanced"></i> 纠纷详情</h2>
             <div id="dispute-detail-body"></div>
             <div class="form-group hidden" id="dispute-respond-block" style="margin-top:18px;">
-                <label>补充说明 <span style="color: #94a3b8; font-size: 0.85rem;">(最多120字)</span></label>
-                <textarea id="dispute-respond-text" maxlength="120" rows="3" placeholder="提供证据或说明，提交后不可更改"></textarea>
+                <label>补充说明 <span style="color: #94a3b8; font-size: 0.85rem;">(最多200字，每角色仅可提交一次，提交后不可修改)</span></label>
+                <textarea id="dispute-respond-text" maxlength="200" rows="4" placeholder="请说明事件经过、争议焦点与你的诉求"></textarea>
+                <div class="evidence-form-row">
+                    <div class="form-group" style="flex:0 0 150px; margin:10px 0 0;">
+                        <label>证据类型 <span class="muted-hint">(可选)</span></label>
+                        <select id="dispute-respond-evtype">
+                            <option value="">无（可选）</option>
+                            <option value="screenshot">截图说明</option>
+                            <option value="chat">聊天记录</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1; margin:10px 0 0;">
+                        <label>证据一句话说明 <span class="muted-hint">(≤50字)</span></label>
+                        <input type="text" id="dispute-respond-evdesc" maxlength="50" placeholder="例如：已附 3 张驿站取件截图">
+                    </div>
+                </div>
                 <div style="display:flex; gap:10px; margin-top:12px;">
                     <button type="button" class="btn-primary" id="dispute-respond-submit">提交补充说明</button>
                 </div>
@@ -365,9 +386,9 @@
         </div>
     </div>
 
-    <script src="script.js?v=5"></script>
-    <script src="credit-api.js?v=2"></script>
-    <script src="credit-ui.js?v=2"></script>
+    <script src="script.js?v=7"></script>
+    <script src="credit-api.js?v=4"></script>
+    <script src="credit-ui.js?v=5"></script>
 </body>
 
 </html>
