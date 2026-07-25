@@ -96,8 +96,10 @@ docker-compose up -d --build
 | `POST` | `/api/update_profile`  | `JSON`   | 用户自决数据维护与鉴权证书的安全重置等。   |
 | `POST` | `/api/ratings`         | `JSON`   | 订单完成后提交互评，写入评分并更新对方信用分。 |
 | `GET`  | `/api/credit?[params]` | `QueryString` | 查询信用档案：当前分、等级、近 10 条评分记录（`direction=received/given`）。 |
+| `GET`  | `/api/credit_events?[params]` | `QueryString` | 查询用户信用事件时间线（倒序，含收到/给出评价、纠纷、信用分变更）。 |
 | `POST` | `/api/disputes`        | `JSON`   | 对争议订单发起纠纷，发起后订单冻结。       |
-| `GET`  | `/api/disputes?[params]` | `QueryString` | 查询与我相关的纠纷单列表（含详情字段）。 |
+| `GET`  | `/api/disputes?[params]` | `QueryString` | 查询与我相关的纠纷单列表（含详情字段、双方补充说明）。 |
+| `POST` | `/api/dispute_statement` | `JSON` | 待裁决纠纷补充说明：发布方/接单方各一次，含可选证据描述。 |
 | `POST` | `/api/dispute_arbitrate` | `JSON` | 裁决纠纷：`upheld` 成立退市 / `rejected` 驳回恢复。 |
 
 ---

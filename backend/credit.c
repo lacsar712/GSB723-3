@@ -45,6 +45,25 @@ User *find_user(const char *username) {
   return NULL;
 }
 
+void add_credit_event(const char *owner, const char *type, const char *ref_type,
+                      int ref_id, int score, int old_credit, int new_credit,
+                      const char *detail) {
+  if (event_count >= MAX_EVENTS)
+    return;
+  CreditEvent *e = &events[event_count++];
+  memset(e, 0, sizeof(CreditEvent));
+  e->id = next_event_id++;
+  strncpy(e->owner, owner ? owner : "", sizeof(e->owner) - 1);
+  strncpy(e->type, type ? type : "", sizeof(e->type) - 1);
+  strncpy(e->ref_type, ref_type ? ref_type : "", sizeof(e->ref_type) - 1);
+  e->ref_id = ref_id;
+  e->score = score;
+  e->old_credit = old_credit;
+  e->new_credit = new_credit;
+  strncpy(e->detail, detail ? detail : "", sizeof(e->detail) - 1);
+  e->created_at = (long)time(NULL);
+}
+
 static Order *find_order(int order_id) {
   for (int i = 0; i < order_count; i++) {
     if (orders[i].id == order_id)
@@ -64,6 +83,17 @@ void run_auto_tasks() {
     Dispute *d = &disputes[i];
     if (strcmp(d->status, "pending") != 0)
       continue;
+    /* 仅当双方都未提交补充说明时，才走「自动成立」分支；
+     * 任一方已补充，则不再自动成立，交由人工裁决。 */
+    int has_statement = 0;
+    for (int s = 0; s < statement_count; s++) {
+      if (statements[s].dispute_id == d->id) {
+        has_statement = 1;
+        break;
+      }
+    }
+    if (has_statement)
+      continue;
     if (now - d->created_at >= DISPUTE_AUTO_UPHOLD_SECONDS) {
       strcpy(d->status, "upheld");
       strcpy(d->verdict,
@@ -74,6 +104,12 @@ void run_auto_tasks() {
       if (o) {
         o->frozen = 0;
         strcpy(o->status, "cancelled"); /* 成立=已撤回类终态并退市 */
+        /* 纠纷成立事件写入双方时间线 */
+        add_credit_event(o->creator, "dispute_upheld", "dispute", d->id, 0, -1,
+                         -1, "系统自动裁决：纠纷成立（接单方责任），悬赏退回");
+        if (strlen(o->worker) > 0)
+          add_credit_event(o->worker, "dispute_upheld", "dispute", d->id, 0, -1,
+                           -1, "系统自动裁决：纠纷成立（接单方责任），悬赏退回");
       }
       changed = 1;
       log_message(LOG_INFO, "Dispute %d auto-upheld (24h)", d->id);

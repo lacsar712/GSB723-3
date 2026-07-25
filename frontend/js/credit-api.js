@@ -30,9 +30,39 @@
         return credit >= 60;
     }
 
-    // 是否属于「低信用发布」范畴（用于大厅弱提示）
+    // 是否属于「低信用发布」范畴（用于大厅弱提示 / 低信用专区）
     function isLowCreditPublisher(credit) {
         return credit < 60;
+    }
+
+    // 发布提醒阈值：< 75 弱警告（不拦截）
+    function needsPublishWarning(credit) {
+        return credit < 75;
+    }
+
+    // 发布者是否达到「优良」（等级为优或良，即 >=75）
+    function isGoodPublisher(credit) {
+        return credit >= 75;
+    }
+
+    /* ---------- 大厅筛选（下沉到 API/规则层，避免堆进 script.js） ---------- */
+    // 将大厅订单按当前筛选拆分为 { normal:[], low:[] }
+    // filter: 'all' | 'good' | 'low'
+    function partitionDashboardOrders(orders, filter) {
+        const low = [];
+        const normal = [];
+        orders.forEach(o => {
+            if (isLowCreditPublisher(o.creatorCredit)) low.push(o);
+            else normal.push(o);
+        });
+        if (filter === 'good') {
+            return { normal: normal.filter(o => isGoodPublisher(o.creatorCredit)), low: [] };
+        }
+        if (filter === 'low') {
+            return { normal: [], low: low };
+        }
+        // 'all'：正常任务在上，低信用专区单独分组
+        return { normal: normal, low: low };
     }
 
     /* ---------- 工具 ---------- */
@@ -51,6 +81,20 @@
         rejected: '已驳回'
     };
 
+    // 信用事件类型元数据：图标、颜色、标题
+    const eventMeta = {
+        rating_received: { icon: 'fa-star', color: '#f59e0b', title: '收到评价' },
+        rating_given: { icon: 'fa-pen', color: '#6366f1', title: '给出评价' },
+        dispute_created: { icon: 'fa-gavel', color: '#f43f5e', title: '发起纠纷' },
+        dispute_upheld: { icon: 'fa-triangle-exclamation', color: '#dc2626', title: '纠纷成立' },
+        dispute_rejected: { icon: 'fa-circle-check', color: '#10b981', title: '纠纷驳回' },
+        credit_change: { icon: 'fa-arrow-trend-up', color: '#8b5cf6', title: '信用分变更' }
+    };
+
+    function metaOf(type) {
+        return eventMeta[type] || { icon: 'fa-circle-info', color: '#64748b', title: '信用事件' };
+    }
+
     /* ---------- 接口请求 ---------- */
 
     // 信用档案：当前分数、等级、近 10 条评分记录
@@ -61,6 +105,36 @@
         if (!resp.ok) throw new Error('fetch credit failed');
         return resp.json();
     }
+
+    // 信用事件时间线（按时间倒序）
+    async function fetchCreditEvents(username, limit) {
+        let url = `/api/credit_events?username=${encodeURIComponent(username)}`;
+        if (limit) url += `&limit=${limit}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('fetch credit events failed');
+        return resp.json();
+    }
+
+    // 发布者信用小面板数据：复用 /api/credit（含 hasActiveDispute + 收到的评价记录）。
+    // 带短时缓存，避免同一发布者被多张卡片重复请求。
+    const _pubCache = {};
+    async function fetchPublisherSummary(username) {
+        if (_pubCache[username]) return _pubCache[username];
+        const data = await fetchCredit(username, 'received');
+        // 仅保留面板需要的字段；近 3 条收到的评价（已脱敏）
+        const summary = {
+            username: data.username,
+            credit: data.credit,
+            level: data.level,
+            levelKey: data.levelKey,
+            canAccept: data.canAccept,
+            hasActiveDispute: !!data.hasActiveDispute,
+            recentRatings: (data.records || []).slice(0, 3)
+        };
+        _pubCache[username] = summary;
+        return summary;
+    }
+    function clearPublisherCache() { for (const k in _pubCache) delete _pubCache[k]; }
 
     // 提交评价
     async function submitRating(payload) {
@@ -103,18 +177,47 @@
         return { ok: resp.ok, data };
     }
 
+    // 提交纠纷补充说明
+    async function submitStatement(payload) {
+        const resp = await fetch('/api/dispute_statement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json().catch(() => ({}));
+        return { ok: resp.ok, data };
+    }
+
+    // 角色与证据类型文案映射
+    const roleLabel = { creator: '发布方', worker: '接单方' };
+    const evidenceTypeLabel = {
+        screenshot: '截图说明',
+        chatlog: '聊天记录',
+        other: '其他'
+    };
+
     // 暴露到全局
     window.CreditAPI = {
         levelInfo,
         newScore,
         canAccept,
         isLowCreditPublisher,
+        needsPublishWarning,
+        isGoodPublisher,
+        partitionDashboardOrders,
         formatTime,
         disputeStatusMap,
+        metaOf,
+        roleLabel,
+        evidenceTypeLabel,
         fetchCredit,
+        fetchCreditEvents,
+        fetchPublisherSummary,
+        clearPublisherCache,
         submitRating,
         fetchDisputes,
         createDispute,
-        arbitrateDispute
+        arbitrateDispute,
+        submitStatement
     };
 })();

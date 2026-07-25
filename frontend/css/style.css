@@ -916,3 +916,445 @@ textarea:focus {
     font-weight: 700;
     font-size: 0.85rem;
 }
+
+/* 信用事件时间线（纵向轴） */
+.credit-timeline {
+    position: relative;
+    padding-left: 8px;
+}
+
+.timeline-item {
+    position: relative;
+    display: flex;
+    gap: 16px;
+    padding: 0 0 22px 0;
+    cursor: pointer;
+}
+
+/* 纵向连接轴 */
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: 17px;
+    top: 36px;
+    bottom: -4px;
+    width: 2px;
+    background: #e2e8f0;
+}
+
+.timeline-item:last-child::before {
+    display: none;
+}
+
+.timeline-dot {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.85rem;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+    z-index: 1;
+}
+
+.timeline-body {
+    flex: 1;
+    background: var(--glass);
+    backdrop-filter: blur(8px);
+    border: 1px solid #eef2f7;
+    border-radius: 14px;
+    padding: 14px 18px;
+    box-shadow: var(--shadow);
+    transition: 0.25s;
+}
+
+.timeline-item:hover .timeline-body {
+    transform: translateX(4px);
+    border-color: var(--primary-light);
+}
+
+.timeline-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.timeline-title {
+    font-weight: 700;
+    color: var(--text-main);
+    font-size: 0.95rem;
+}
+
+.timeline-time {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+
+.timeline-detail {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+/* 信用分变更前后对比 */
+.tl-credit-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    padding: 8px 14px;
+    background: #f8fafc;
+    border-radius: 10px;
+    font-weight: 800;
+    font-size: 1rem;
+}
+
+.tl-credit-change i {
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+
+.tl-credit-change small {
+    font-size: 0.7rem;
+    font-weight: 700;
+    opacity: 0.7;
+}
+
+.tl-old {
+    color: var(--text-muted);
+}
+
+.tl-new.up {
+    color: #059669;
+}
+
+.tl-new.down {
+    color: #dc2626;
+}
+
+.timeline-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 10px;
+    font-size: 0.78rem;
+    color: var(--primary);
+    font-weight: 700;
+}
+
+/* 时间线跳转的订单卡片高亮 */
+.order-card.order-highlight {
+    box-shadow: 0 0 0 3px var(--primary-light), 0 20px 40px rgba(99, 102, 241, 0.25);
+    transition: box-shadow 0.3s;
+}
+
+/* 纠纷补充说明 */
+.stmt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.stmt-empty {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    padding: 4px 0;
+}
+
+.stmt-item {
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 10px 14px;
+    border-left: 3px solid #cbd5e1;
+}
+
+.stmt-item.creator {
+    border-left-color: var(--primary);
+}
+
+.stmt-item.worker {
+    border-left-color: var(--accent);
+}
+
+.stmt-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.stmt-role {
+    font-weight: 700;
+    font-size: 0.82rem;
+}
+
+.stmt-role.creator {
+    color: var(--primary);
+}
+
+.stmt-role.worker {
+    color: #d97706;
+}
+
+.stmt-time {
+    font-size: 0.72rem;
+    color: #94a3b8;
+}
+
+.stmt-content {
+    font-size: 0.88rem;
+    color: var(--text-main);
+    line-height: 1.5;
+}
+
+.stmt-evidence {
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    background: #eef2ff;
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 8px;
+}
+
+.stmt-done {
+    margin: 14px 0 4px;
+    padding: 10px 14px;
+    background: #ecfdf5;
+    color: #059669;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.stmt-form {
+    margin: 14px 0 4px;
+    padding: 14px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+}
+
+.stmt-form-title {
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--text-main);
+    margin-bottom: 10px;
+}
+
+.stmt-evidence-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.stmt-evidence-row select {
+    flex: 0 0 40%;
+}
+
+.stmt-evidence-row input {
+    flex: 1;
+}
+
+/* ===== 大厅信用筛选 / 分组 / 发布者面板 / 发布警告 ===== */
+
+/* 信用筛选行 */
+.credit-filter-pills {
+    align-items: center;
+    margin-top: -1rem;
+}
+
+.credit-filter-pills .filter-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.credit-pill {
+    padding: 8px 18px;
+    font-size: 0.85rem;
+}
+
+.dashboard-empty {
+    grid-column: 1/-1;
+    text-align: center;
+    color: #64748b;
+    padding: 40px;
+}
+
+/* 低信用专区（折叠分组） */
+.low-zone {
+    grid-column: 1/-1;
+    margin-top: 10px;
+    border: 1px dashed rgba(239, 68, 68, 0.35);
+    border-radius: 16px;
+    background: rgba(239, 68, 68, 0.04);
+    padding: 8px 14px 14px;
+}
+
+.low-zone-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 6px;
+    cursor: pointer;
+    font-weight: 800;
+    color: #b91c1c;
+}
+
+.low-zone-caret {
+    transition: transform 0.25s;
+}
+
+.low-zone-caret.open {
+    transform: rotate(180deg);
+}
+
+.low-zone-hint {
+    font-size: 0.8rem;
+    color: #b91c1c;
+    opacity: 0.85;
+    padding: 0 6px 10px;
+}
+
+.low-zone-grid {
+    margin-top: 4px;
+}
+
+/* 发布者信用小面板 */
+.pub-info-btn {
+    border: none;
+    background: none;
+    color: var(--primary);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 0.85rem;
+}
+
+.pub-info-btn:hover {
+    color: #4338ca;
+}
+
+.pub-panel {
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-top: 4px;
+}
+
+.pub-loading {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.pub-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.pub-score {
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.pub-noaccept {
+    font-size: 0.72rem;
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-weight: 700;
+}
+
+.pub-panel-disp {
+    margin-bottom: 8px;
+}
+
+.pub-dispute {
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.pub-dispute.yes {
+    background: #fffbeb;
+    color: #d97706;
+}
+
+.pub-dispute.no {
+    background: #ecfdf5;
+    color: #059669;
+}
+
+.pub-panel-title {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin-bottom: 6px;
+    font-weight: 700;
+}
+
+.pub-ratings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pub-rating {
+    background: white;
+    border-radius: 8px;
+    padding: 8px 10px;
+    border: 1px solid #f1f5f9;
+}
+
+.pub-rating-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.pub-rating-cmt {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 3px;
+}
+
+.pub-rating-empty {
+    font-size: 0.82rem;
+    color: #94a3b8;
+}
+
+/* 发布页弱警告 */
+.publish-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 12px;
+    color: #b45309;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.publish-warning i {
+    margin-top: 2px;
+    color: #d97706;
+}

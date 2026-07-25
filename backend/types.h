@@ -5,6 +5,8 @@
 #define MAX_USERS 100
 #define MAX_RATINGS 2000
 #define MAX_DISPUTES 500
+#define MAX_EVENTS 8000
+#define MAX_STATEMENTS 1000
 #define BUFFER_SIZE 20480
 
 /* 信用分业务常量（写死，不做可配置开关） */
@@ -58,5 +60,36 @@ typedef struct {
   long created_at;
   long resolved_at;
 } Dispute;
+
+/* 纠纷补充说明：待裁决期间，发布方 / 接单方各可提交一次。
+ * role: creator / worker
+ * evidence_type: screenshot（截图说明）/ chatlog（聊天记录）/ other（其他）/ 空 */
+typedef struct {
+  int id;
+  int dispute_id;
+  char role[12];          /* creator / worker */
+  char author[50];        /* 提交人用户名 */
+  char content[640];      /* 补充说明正文，最长 200 字 */
+  char evidence_type[16]; /* 证据类型，可选 */
+  char evidence_desc[160];/* 证据一句话说明，最长 50 字，可选 */
+  long created_at;
+} DisputeStatement;
+
+/* 信用事件时间线
+ * type: rating_received / rating_given / dispute_created /
+ *       dispute_upheld / dispute_rejected / credit_change
+ * ref_type: order / dispute （供前端跳转关联详情） */
+typedef struct {
+  int id;
+  char owner[50];     /* 事件归属用户 */
+  char type[24];      /* 事件类型 */
+  char ref_type[12];  /* order / dispute */
+  int ref_id;         /* 关联订单号或纠纷号 */
+  int score;          /* 评价类事件的星级，其它为 0 */
+  int old_credit;     /* 信用分变更前分值，非变更事件为 -1 */
+  int new_credit;     /* 信用分变更后分值，非变更事件为 -1 */
+  char detail[160];   /* 附加说明/评语 */
+  long created_at;
+} CreditEvent;
 
 #endif

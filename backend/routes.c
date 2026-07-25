@@ -418,7 +418,9 @@ static void handle_submit_rating(int client_socket, char *body) {
   /* 更新被评价人信用分：新分 = round(旧分*0.8 + 评分*20*0.2) */
   User *ru = find_user(ratee);
   int new_credit = 0;
+  int old_credit = 0;
   if (ru) {
+    old_credit = ru->credit;
     ru->credit = credit_new_score(ru->credit, score);
     new_credit = ru->credit;
   }
@@ -427,6 +429,24 @@ static void handle_submit_rating(int client_socket, char *body) {
     o->creator_rated = 1;
   else
     o->worker_rated = 1;
+
+  /* 写入信用事件时间线：给出评价 / 收到评价 / 信用分变更 */
+  char given_detail[160], recv_detail[160];
+  snprintf(given_detail, sizeof(given_detail), "你评价了「%s」%d 星%s%s", ratee,
+           score, strlen(comment) ? "：" : "", comment);
+  snprintf(recv_detail, sizeof(recv_detail), "收到一条 %d 星评价%s%s", score,
+           strlen(comment) ? "：" : "", comment);
+  add_credit_event(rater, "rating_given", "order", order_id, score, -1, -1,
+                   given_detail);
+  add_credit_event(ratee, "rating_received", "order", order_id, score, -1, -1,
+                   recv_detail);
+  if (ru) {
+    char chg_detail[160];
+    snprintf(chg_detail, sizeof(chg_detail),
+             "因收到 %d 星评价，信用分 %d → %d", score, old_credit, new_credit);
+    add_credit_event(ratee, "credit_change", "order", order_id, score,
+                     old_credit, new_credit, chg_detail);
+  }
 
   save_data();
   log_message(LOG_INFO, "Rating submitted: order=%d %s->%s score=%d credit=%d",
@@ -455,6 +475,21 @@ static void handle_get_credit(int client_socket, char *query_string) {
   int credit = user ? user->credit : INITIAL_CREDIT;
   int by_received = strcmp(direction, "given") != 0;
 
+  /* 是否有进行中纠纷：该用户作为发布方/接单方、且纠纷状态为 pending */
+  int has_active_dispute = 0;
+  for (int i = 0; i < dispute_count && !has_active_dispute; i++) {
+    if (strcmp(disputes[i].status, "pending") != 0)
+      continue;
+    for (int k = 0; k < order_count; k++) {
+      if (orders[k].id == disputes[i].order_id &&
+          (strcmp(orders[k].creator, username) == 0 ||
+           strcmp(orders[k].worker, username) == 0)) {
+        has_active_dispute = 1;
+        break;
+      }
+    }
+  }
+
   char *json = malloc(64 * 1024);
   if (!json) {
     send_json(client_socket, "500 Internal Server Error",
@@ -465,10 +500,11 @@ static void handle_get_credit(int client_socket, char *query_string) {
   off += sprintf(json + off,
                  "{\"status\":\"success\",\"username\":\"%s\",\"credit\":%d,"
                  "\"level\":\"%s\",\"levelKey\":\"%s\",\"canAccept\":%s,"
-                 "\"records\":[",
+                 "\"hasActiveDispute\":%s,\"records\":[",
                  username, credit, credit_level_label(credit),
                  credit_level_key(credit),
-                 credit < MIN_ACCEPT_CREDIT ? "false" : "true");
+                 credit < MIN_ACCEPT_CREDIT ? "false" : "true",
+                 has_active_dispute ? "true" : "false");
 
   /* 倒序取最近 10 条匹配记录 */
   int emitted = 0;
@@ -497,6 +533,54 @@ static void handle_get_credit(int client_socket, char *query_string) {
   free(json);
   log_message(LOG_INFO, "Credit profile fetched for %s (%s)", username,
               direction);
+}
+
+/* 信用事件时间线：某用户相关事件按时间倒序返回。
+ * query: ?username=xxx（可选 &limit=N，默认 50） */
+static void handle_get_credit_events(int client_socket, char *query_string) {
+  char username[50] = "";
+  int limit = 50;
+  if (query_string) {
+    char *u = strstr(query_string, "username=");
+    if (u)
+      sscanf(u + 9, "%[^& ]", username);
+    char *l = strstr(query_string, "limit=");
+    if (l)
+      sscanf(l + 6, "%d", &limit);
+  }
+  if (limit <= 0 || limit > MAX_EVENTS)
+    limit = 50;
+
+  char *json = malloc(MAX_EVENTS / 4 * 512 + 64);
+  if (!json) {
+    send_json(client_socket, "500 Internal Server Error",
+              "{\"status\":\"error\"}");
+    return;
+  }
+  int off = 0;
+  json[off++] = '[';
+  int emitted = 0;
+  for (int i = event_count - 1; i >= 0 && emitted < limit; i--) {
+    CreditEvent *e = &events[i];
+    if (strcmp(e->owner, username) != 0)
+      continue;
+    char esc_detail[320];
+    json_escape(e->detail, esc_detail, sizeof(esc_detail));
+    off += sprintf(json + off,
+                   "%s{\"id\":%d,\"type\":\"%s\",\"refType\":\"%s\","
+                   "\"refId\":%d,\"score\":%d,\"oldCredit\":%d,"
+                   "\"newCredit\":%d,\"detail\":\"%s\",\"time\":%ld}",
+                   emitted ? "," : "", e->id, e->type, e->ref_type, e->ref_id,
+                   e->score, e->old_credit, e->new_credit, esc_detail,
+                   e->created_at);
+    emitted++;
+  }
+  json[off++] = ']';
+  json[off] = '\0';
+
+  send_json(client_socket, "200 OK", json);
+  free(json);
+  log_message(LOG_INFO, "Credit events fetched for %s (%d)", username, emitted);
 }
 
 /* 发起纠纷：body {orderId, initiator, reason}
@@ -571,6 +655,13 @@ static void handle_create_dispute(int client_socket, char *body) {
   strcpy(o->prev_status, o->status);
   o->frozen = 1;
 
+  /* 发起纠纷事件写入发起方时间线 */
+  char dsp_detail[160];
+  snprintf(dsp_detail, sizeof(dsp_detail), "你对订单 #%d 发起纠纷：%s", order_id,
+           reason);
+  add_credit_event(initiator, "dispute_created", "dispute", d->id, 0, -1, -1,
+                   dsp_detail);
+
   save_data();
   log_message(LOG_INFO, "Dispute created: id=%d order=%d by %s", d->id,
               order_id, initiator);
@@ -579,6 +670,97 @@ static void handle_create_dispute(int client_socket, char *body) {
   snprintf(resp, sizeof(resp), "{\"status\":\"success\",\"disputeId\":%d}",
            d->id);
   send_json(client_socket, "200 OK", resp);
+}
+
+/* 提交纠纷补充说明：body {disputeId, author, content, evidenceType?, evidenceDesc?}
+ * 仅待裁决纠纷；发布方/接单方各自可提交一次；同一角色不可重复提交。 */
+static void handle_submit_statement(int client_socket, char *body) {
+  int dispute_id = -1;
+  char author[50] = "", content[640] = "", evidence_type[16] = "",
+       evidence_desc[160] = "";
+
+  char *did = strstr(body, "\"disputeId\":");
+  if (did)
+    sscanf(did + 12, "%d", &dispute_id);
+  parse_json_string(body, "author", author, sizeof(author));
+  parse_json_string(body, "content", content, sizeof(content));
+  parse_json_string(body, "evidenceType", evidence_type, sizeof(evidence_type));
+  parse_json_string(body, "evidenceDesc", evidence_desc, sizeof(evidence_desc));
+
+  if (strlen(content) == 0) {
+    send_json(client_socket, "400 Bad Request",
+              "{\"status\":\"error\",\"message\":\"请填写补充说明内容\"}");
+    return;
+  }
+
+  Dispute *d = NULL;
+  for (int i = 0; i < dispute_count; i++)
+    if (disputes[i].id == dispute_id)
+      d = &disputes[i];
+  if (!d) {
+    send_json(client_socket, "404 Not Found",
+              "{\"status\":\"error\",\"message\":\"纠纷不存在\"}");
+    return;
+  }
+  if (strcmp(d->status, "pending") != 0) {
+    send_json(client_socket, "409 Conflict",
+              "{\"status\":\"error\",\"message\":\"该纠纷已裁决，不可补充\"}");
+    return;
+  }
+
+  Order *o = NULL;
+  for (int i = 0; i < order_count; i++)
+    if (orders[i].id == d->order_id)
+      o = &orders[i];
+  if (!o) {
+    send_json(client_socket, "404 Not Found",
+              "{\"status\":\"error\",\"message\":\"关联订单不存在\"}");
+    return;
+  }
+
+  /* 判定角色：发布方 creator / 接单方 worker */
+  char role[12] = "";
+  if (strcmp(o->creator, author) == 0)
+    strcpy(role, "creator");
+  else if (strcmp(o->worker, author) == 0)
+    strcpy(role, "worker");
+  else {
+    send_json(client_socket, "403 Forbidden",
+              "{\"status\":\"error\",\"message\":\"非订单参与方\"}");
+    return;
+  }
+
+  /* 同一角色不可重复提交 */
+  for (int i = 0; i < statement_count; i++) {
+    if (statements[i].dispute_id == dispute_id &&
+        strcmp(statements[i].role, role) == 0) {
+      send_json(client_socket, "409 Conflict",
+                "{\"status\":\"error\",\"message\":\"你已提交过补充说明\"}");
+      return;
+    }
+  }
+
+  if (statement_count >= MAX_STATEMENTS) {
+    send_json(client_socket, "500 Internal Server Error",
+              "{\"status\":\"error\"}");
+    return;
+  }
+
+  DisputeStatement *st = &statements[statement_count++];
+  memset(st, 0, sizeof(DisputeStatement));
+  st->id = next_statement_id++;
+  st->dispute_id = dispute_id;
+  strcpy(st->role, role);
+  strcpy(st->author, author);
+  strncpy(st->content, content, sizeof(st->content) - 1);
+  strncpy(st->evidence_type, evidence_type, sizeof(st->evidence_type) - 1);
+  strncpy(st->evidence_desc, evidence_desc, sizeof(st->evidence_desc) - 1);
+  st->created_at = (long)time(NULL);
+
+  save_data();
+  log_message(LOG_INFO, "Statement submitted: dispute=%d role=%s by %s",
+              dispute_id, role, author);
+  send_json(client_socket, "200 OK", "{\"status\":\"success\"}");
 }
 
 /* 纠纷列表：可选 ?username=xxx 只看与我相关的订单纠纷 */
@@ -590,7 +772,7 @@ static void handle_list_disputes(int client_socket, char *query_string) {
       sscanf(u + 9, "%[^& ]", username);
   }
 
-  char *json = malloc(MAX_DISPUTES * 1024);
+  char *json = malloc(MAX_DISPUTES * 3072);
   if (!json) {
     send_json(client_socket, "500 Internal Server Error",
               "{\"status\":\"error\"}");
@@ -621,11 +803,30 @@ static void handle_list_disputes(int client_socket, char *query_string) {
         "%s{\"id\":%d,\"orderId\":%d,\"initiator\":\"%s\",\"reason\":\"%s\","
         "\"status\":\"%s\",\"verdict\":\"%s\",\"createdAt\":%ld,"
         "\"resolvedAt\":%ld,\"package\":\"%s\",\"creator\":\"%s\","
-        "\"worker\":\"%s\",\"reward\":\"%s\"}",
+        "\"worker\":\"%s\",\"reward\":\"%s\",\"statements\":[",
         first ? "" : ",", d->id, d->order_id, d->initiator, esc_reason,
         d->status, esc_verdict, d->created_at, d->resolved_at,
         o ? o->package_info : "", o ? o->creator : "", o ? o->worker : "",
         o ? o->reward : "");
+
+    /* 附带该纠纷的补充说明（按提交时间正序） */
+    int sfirst = 1;
+    for (int s = 0; s < statement_count; s++) {
+      DisputeStatement *st = &statements[s];
+      if (st->dispute_id != d->id)
+        continue;
+      char esc_content[1300], esc_edesc[400];
+      json_escape(st->content, esc_content, sizeof(esc_content));
+      json_escape(st->evidence_desc, esc_edesc, sizeof(esc_edesc));
+      off += sprintf(
+          json + off,
+          "%s{\"id\":%d,\"role\":\"%s\",\"author\":\"%s\",\"content\":\"%s\","
+          "\"evidenceType\":\"%s\",\"evidenceDesc\":\"%s\",\"createdAt\":%ld}",
+          sfirst ? "" : ",", st->id, st->role, st->author, esc_content,
+          st->evidence_type, esc_edesc, st->created_at);
+      sfirst = 0;
+    }
+    off += sprintf(json + off, "]}");
     first = 0;
   }
   json[off++] = ']';
@@ -673,6 +874,11 @@ static void handle_arbitrate_dispute(int client_socket, char *body) {
     if (o) {
       o->frozen = 0;
       strcpy(o->status, "cancelled");
+      add_credit_event(o->creator, "dispute_upheld", "dispute", d->id, 0, -1,
+                       -1, "纠纷裁定成立，悬赏退回，订单已退市");
+      if (strlen(o->worker) > 0)
+        add_credit_event(o->worker, "dispute_upheld", "dispute", d->id, 0, -1,
+                         -1, "纠纷裁定成立，悬赏退回，订单已退市");
     }
   } else if (strcmp(verdict, "rejected") == 0) {
     strcpy(d->status, "rejected");
@@ -681,6 +887,11 @@ static void handle_arbitrate_dispute(int client_socket, char *body) {
       o->frozen = 0;
       if (strlen(o->prev_status) > 0)
         strcpy(o->status, o->prev_status);
+      add_credit_event(o->creator, "dispute_rejected", "dispute", d->id, 0, -1,
+                       -1, "纠纷被驳回，订单恢复流转");
+      if (strlen(o->worker) > 0)
+        add_credit_event(o->worker, "dispute_rejected", "dispute", d->id, 0, -1,
+                         -1, "纠纷被驳回，订单恢复流转");
     }
   } else {
     send_json(client_socket, "400 Bad Request",
@@ -781,6 +992,10 @@ void handle_request(int client_socket) {
       body += 4;
       handle_submit_rating(client_socket, body);
     }
+  } else if (strstr(buffer, "GET /api/credit_events")) {
+    char *path_start = strstr(buffer, "GET /api/credit_events");
+    char *q = strstr(path_start, "?");
+    handle_get_credit_events(client_socket, q);
   } else if (strstr(buffer, "GET /api/credit")) {
     char *path_start = strstr(buffer, "GET /api/credit");
     char *q = strstr(path_start, "?");
@@ -790,6 +1005,12 @@ void handle_request(int client_socket) {
     if (body) {
       body += 4;
       handle_arbitrate_dispute(client_socket, body);
+    }
+  } else if (strstr(buffer, "POST /api/dispute_statement")) {
+    char *body = strstr(buffer, "\r\n\r\n");
+    if (body) {
+      body += 4;
+      handle_submit_statement(client_socket, body);
     }
   } else if (strstr(buffer, "POST /api/disputes")) {
     char *body = strstr(buffer, "\r\n\r\n");

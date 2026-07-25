@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>校递快跑 - 大学生代取快递平台</title>
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=6">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -114,6 +114,12 @@
                     <button class="pill" data-filter="京东">京东派</button>
                     <button class="pill" data-filter="中通">中通/圆通</button>
                 </div>
+                <div class="category-pills credit-filter-pills" id="credit-filter-pills">
+                    <span class="filter-label"><i class="fas fa-shield-halved"></i> 信用筛选</span>
+                    <button class="pill credit-pill active" data-credit-filter="all">全部</button>
+                    <button class="pill credit-pill" data-credit-filter="good">仅优良</button>
+                    <button class="pill credit-pill" data-credit-filter="low">低信用专区</button>
+                </div>
                 <div class="order-grid" id="order-list"></div>
             </section>
 
@@ -189,6 +195,8 @@
                 </div>
                 <h3 class="credit-list-title">近 10 条评分记录</h3>
                 <div class="credit-records" id="credit-records"></div>
+                <h3 class="credit-list-title" style="margin-top:2rem;"><i class="fas fa-stream"></i> 信用事件时间线</h3>
+                <div class="credit-timeline" id="credit-timeline"></div>
             </section>
 
             <!-- Dispute Center -->
@@ -339,9 +347,9 @@
         </div>
     </div>
 
-    <script src="credit-api.js?v=1"></script>
-    <script src="credit-ui.js?v=1"></script>
-    <script src="script.js?v=4"></script>
+    <script src="credit-api.js?v=4"></script>
+    <script src="credit-ui.js?v=4"></script>
+    <script src="script.js?v=6"></script>
 </body>
 
 </html>

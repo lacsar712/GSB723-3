@@ -14,6 +14,12 @@ int next_rating_id = 1;
 Dispute disputes[MAX_DISPUTES];
 int dispute_count = 0;
 int next_dispute_id = 1;
+CreditEvent events[MAX_EVENTS];
+int event_count = 0;
+int next_event_id = 1;
+DisputeStatement statements[MAX_STATEMENTS];
+int statement_count = 0;
+int next_statement_id = 1;
 
 void save_data() {
   FILE *f1 = fopen("data_orders.bin", "wb");
@@ -57,6 +63,28 @@ void save_data() {
     log_message(LOG_INFO, "Disputes data saved successfully");
   } else {
     log_message(LOG_ERROR, "Failed to save disputes data");
+  }
+
+  FILE *f5 = fopen("data_events.bin", "wb");
+  if (f5) {
+    fwrite(&event_count, sizeof(int), 1, f5);
+    fwrite(&next_event_id, sizeof(int), 1, f5);
+    fwrite(events, sizeof(CreditEvent), event_count, f5);
+    fclose(f5);
+    log_message(LOG_INFO, "Credit events data saved successfully");
+  } else {
+    log_message(LOG_ERROR, "Failed to save credit events data");
+  }
+
+  FILE *f6 = fopen("data_dispute_statements.bin", "wb");
+  if (f6) {
+    fwrite(&statement_count, sizeof(int), 1, f6);
+    fwrite(&next_statement_id, sizeof(int), 1, f6);
+    fwrite(statements, sizeof(DisputeStatement), statement_count, f6);
+    fclose(f6);
+    log_message(LOG_INFO, "Dispute statements data saved successfully");
+  } else {
+    log_message(LOG_ERROR, "Failed to save dispute statements data");
   }
 }
 
@@ -107,6 +135,28 @@ void load_data() {
     log_message(LOG_INFO, "Loaded %d disputes", dispute_count);
   } else {
     log_message(LOG_WARN, "No existing disputes data found");
+  }
+
+  FILE *f5 = fopen("data_events.bin", "rb");
+  if (f5) {
+    fread(&event_count, sizeof(int), 1, f5);
+    fread(&next_event_id, sizeof(int), 1, f5);
+    fread(events, sizeof(CreditEvent), event_count, f5);
+    fclose(f5);
+    log_message(LOG_INFO, "Loaded %d credit events", event_count);
+  } else {
+    log_message(LOG_WARN, "No existing credit events data found");
+  }
+
+  FILE *f6 = fopen("data_dispute_statements.bin", "rb");
+  if (f6) {
+    fread(&statement_count, sizeof(int), 1, f6);
+    fread(&next_statement_id, sizeof(int), 1, f6);
+    fread(statements, sizeof(DisputeStatement), statement_count, f6);
+    fclose(f6);
+    log_message(LOG_INFO, "Loaded %d dispute statements", statement_count);
+  } else {
+    log_message(LOG_WARN, "No existing dispute statements data found");
   }
 
   if (user_count == 0) {

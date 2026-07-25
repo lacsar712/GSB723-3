@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // State management
     let currentUser = JSON.parse(localStorage.getItem('user')) || null;
     let currentFilter = '';
+    let creditFilter = 'all'; // 'all' | 'good' | 'low'  大厅信用筛选
     let myOrdersView = 'created'; // 'created' or 'accepted'
 
     const elements = {
@@ -20,7 +21,8 @@ document.addEventListener('DOMContentLoaded', () => {
         activeCount: document.getElementById('active-count'),
         orderForm: document.getElementById('order-form'),
         navItems: document.querySelectorAll('.nav-item'),
-        filterPills: document.querySelectorAll('.pill'),
+        filterPills: document.querySelectorAll('#filter-pills .pill'),
+        creditFilterPills: document.querySelectorAll('#credit-filter-pills .credit-pill'),
         viewSections: document.querySelectorAll('.view-section'),
         showCreated: document.getElementById('show-created'),
         showAccepted: document.getElementById('show-accepted'),
@@ -156,8 +158,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tab === 'profile') loadProfile();
             if (tab === 'credit') CreditUI.loadCreditProfile();
             if (tab === 'disputes') CreditUI.loadDisputes();
+            if (tab === 'post-task') refreshPublishWarning();
         };
     });
+
+    // 发布页信用弱警告：拉取当前用户信用分，交给 CreditUI 渲染
+    async function refreshPublishWarning() {
+        const container = document.querySelector('#post-task-tab .form-container');
+        if (!container) return;
+        try {
+            const c = await CreditAPI.fetchCredit(currentUser.username, 'received');
+            if (typeof c.credit === 'number') {
+                currentUser.credit = c.credit;
+                localStorage.setItem('user', JSON.stringify(currentUser));
+            }
+            CreditUI.renderPublishWarning(container, c.credit);
+        } catch (e) { /* 静默：网络异常时不阻断发布 */ }
+    }
 
     // --- Order Logic ---
     async function fetchOrders() {
@@ -165,7 +182,11 @@ document.addEventListener('DOMContentLoaded', () => {
             let url = `/api/orders?category=${encodeURIComponent(currentFilter)}`;
             const resp = await fetch(url);
             const orders = await resp.json();
-            renderOrders(orders, elements.orderList);
+            // 信用信息可能已变化，清理发布者面板缓存
+            CreditAPI.clearPublisherCache();
+            // 大厅只展示待接单且非本人发布的任务；分组/筛选渲染下沉到 CreditUI
+            const dashOrders = orders.filter(o => o.status === 'pending' && o.creator !== currentUser.username);
+            CreditUI.renderDashboard(dashOrders, elements.orderList, creditFilter);
             elements.activeCount.textContent = orders.filter(o => o.status !== 'completed').length;
         } catch (err) { console.error(err); }
     }
@@ -183,42 +204,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderOrders(orders, container, isMyOrders = false) {
         container.innerHTML = '';
-        if (!isMyOrders) {
-            orders = orders.filter(o => o.status === 'pending' && o.creator !== currentUser.username);
-        }
+        // 注：大厅（isMyOrders=false）已由 CreditUI.renderDashboard 接管，
+        // 这里仅服务「我的订单」列表。
 
         if (orders.length === 0) {
             container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 40px;">暂无订单数据</div>';
             return;
         }
 
-        // 大厅：若存在低信用发布者的待接单任务，顶部弱提示，并将其排到前面
-        if (!isMyOrders) {
-            const hasLowCredit = orders.some(o => CreditAPI.isLowCreditPublisher(o.creatorCredit));
-            if (hasLowCredit) {
-                container.insertAdjacentHTML('beforeend', CreditUI.lowCreditNoticeHtml());
-                orders = orders.slice().sort((a, b) => {
-                    const la = CreditAPI.isLowCreditPublisher(a.creatorCredit) ? 0 : 1;
-                    const lb = CreditAPI.isLowCreditPublisher(b.creatorCredit) ? 0 : 1;
-                    return la - lb;
-                });
-            }
-        }
-
         orders.forEach(order => {
             const card = document.createElement('div');
-            const lowCls = (!isMyOrders && CreditAPI.isLowCreditPublisher(order.creatorCredit)) ? ' low-credit' : '';
-            card.className = `order-card ${order.status}${lowCls}`;
+            card.className = `order-card ${order.status}`;
+            card.dataset.orderId = order.id;
 
             const statusMap = { 'pending': '待接单', 'accepted': '进行中', 'delivered': '待收货', 'completed': '已完成', 'cancelled': '已撤回' };
-
-            // 大厅卡片：发布者信用短标签；低信用发布弱提示文案
-            const creditTag = !isMyOrders
-                ? CreditUI.creditTagHtml(order.creatorLevelKey, order.creatorLevel)
-                : '';
-            const lowCreditText = (!isMyOrders && CreditAPI.isLowCreditPublisher(order.creatorCredit))
-                ? '<div class="info-row" style="color:#b91c1c;"><i class="fas fa-exclamation-circle"></i> <span>低信用发布</span></div>'
-                : '';
 
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -229,25 +228,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     <h3>${order.package}</h3>
                     <div class="info-row"><i class="fas fa-map-marker-alt"></i> <span>${order.pickup}</span></div>
                     <div class="info-row"><i class="fas fa-door-open"></i> <span>送至: ${order.delivery}</span></div>
-                    <div class="info-row"><i class="fas fa-user-circle"></i> <span>发布人: ${order.creator}${creditTag}</span></div>
-                    ${lowCreditText}
+                    <div class="info-row"><i class="fas fa-user-circle"></i> <span>发布人: ${order.creator}</span></div>
                     ${order.worker ? `<div class="info-row"><i class="fas fa-hands-helping"></i> <span>接单人: ${order.worker}</span></div>` : ''}
                     ${order.frozen ? `<div class="info-row" style="color:#d97706;"><i class="fas fa-snowflake"></i> <span>纠纷冻结中</span></div>` : ''}
                 </div>
                 <div class="order-footer">
-                    ${!isMyOrders && order.status === 'pending' ?
-                    `<button class="btn-primary" onclick="updateStatus(${order.id}, 'accepted')">确认接单</button>` : ''}
-
-                    ${isMyOrders && myOrdersView === 'accepted' && order.status === 'accepted' && !order.frozen ?
+                    ${myOrdersView === 'accepted' && order.status === 'accepted' && !order.frozen ?
                     `<button class="btn-primary" onclick="updateStatus(${order.id}, 'delivered')">确认送达</button>` : ''}
 
-                    ${isMyOrders && myOrdersView === 'created' && (order.status === 'accepted' || order.status === 'delivered') && !order.frozen ?
+                    ${myOrdersView === 'created' && (order.status === 'accepted' || order.status === 'delivered') && !order.frozen ?
                     `<button class="btn-primary" style="background:var(--accent);color:#fff" onclick="updateStatus(${order.id}, 'completed')">确认收货并支付</button>` : ''}
 
-                    ${isMyOrders && myOrdersView === 'created' && order.status === 'pending' ?
+                    ${myOrdersView === 'created' && order.status === 'pending' ?
                     `<button class="btn-outline" style="color: #ef4444;" onclick="updateStatus(${order.id}, 'cancelled')"><i class="fas fa-undo"></i> 撤回发布</button>` : ''}
 
-                    ${isMyOrders && !order.frozen && (order.status === 'accepted' || order.status === 'delivered') ?
+                    ${!order.frozen && (order.status === 'accepted' || order.status === 'delivered') ?
                     `<button class="btn-outline" style="color:var(--secondary);border-color:#fecdd3;" onclick="openDispute(${order.id}, '${myOrdersView === 'created' ? (order.worker || '') : order.creator}')"><i class="fas fa-gavel"></i> 发起纠纷</button>` : ''}
 
                     ${renderRatingEntry(order, isMyOrders)}
@@ -270,13 +265,23 @@ document.addEventListener('DOMContentLoaded', () => {
         return `<button class="btn-primary" onclick="openRating(${order.id}, '${target}')"><i class="fas fa-star"></i> 评价对方</button>`;
     }
 
-    // Filter Logic
+    // Filter Logic（驿站分类）
     elements.filterPills.forEach(pill => {
         pill.onclick = () => {
             elements.filterPills.forEach(p => p.classList.remove('active'));
             pill.classList.add('active');
             let ds = pill.dataset.filter;
             currentFilter = (ds === '全部') ? '' : ds;
+            fetchOrders();
+        };
+    });
+
+    // 信用筛选（全部 / 仅优良 / 低信用专区）—— 仅切换前端渲染，不刷新整站
+    elements.creditFilterPills.forEach(pill => {
+        pill.onclick = () => {
+            elements.creditFilterPills.forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            creditFilter = pill.dataset.creditFilter;
             fetchOrders();
         };
     });
@@ -450,6 +455,32 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => t.classList.add('hidden'), 3000);
     }
 
+    // 时间线跳转到关联订单：切到「我的订单」并高亮定位该订单卡片
+    async function gotoOrder(orderId) {
+        document.querySelector('[data-tab="my-orders"]').click();
+        // 依次在「我发布的 / 我接单的」中查找该订单
+        await fetchMyOrders();
+        let card = highlightOrderCard(orderId);
+        if (!card) {
+            elements.showAccepted.click();
+            await fetchMyOrders();
+            highlightOrderCard(orderId);
+        }
+    }
+
+    function highlightOrderCard(orderId) {
+        const cards = elements.myOrdersList.querySelectorAll('.order-card');
+        for (const c of cards) {
+            if (c.dataset.orderId === String(orderId)) {
+                c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                c.classList.add('order-highlight');
+                setTimeout(() => c.classList.remove('order-highlight'), 2200);
+                return c;
+            }
+        }
+        return null;
+    }
+
     // 初始化信用分 + 纠纷仲裁模块 UI，注入共享上下文
     CreditUI.init({
         getUser: () => currentUser,
@@ -459,7 +490,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentUser.credit = credit;
                 localStorage.setItem('user', JSON.stringify(currentUser));
             }
-        }
+        },
+        gotoOrder: gotoOrder,
+        openDisputeById: (id) => CreditUI.openDisputeById(id),
+        acceptOrder: (id) => window.updateStatus(id, 'accepted')
     });
 
     // Init
